@@ -136,6 +136,28 @@ If that succeeds, run the `export PATH=...` command above for the current
 shell. After adding it to `.zshrc`, open a new terminal or run `source
 "$HOME/.zshrc"`, then repeat `tapstate --version`.
 
+### Installation telemetry
+
+To help the team understand platform adoption and prioritize architecture support, the CLI installer collects basic, anonymous installation events.
+
+Before downloading assets, the installer outputs a disclosure notice to standard error (`stderr`). An event is sent only after the binary is successfully verified and unpacked.
+
+The event payload contains only non-sensitive environment metadata:
+
+- Tapstate version
+- Operating system and CPU architecture (such as macOS `arm64` or Linux `x64`)
+- A randomly generated anonymous installation ID stored at `$HOME/.tapstate/.installation-id` to prevent duplicate counts during re-installations
+
+The installer does not collect personal identifiers, IP addresses, usernames, repository content, file paths, or sensitive credentials.
+
+To opt out completely, set `TAPSTATE_TELEMETRY=off`:
+
+```bash
+curl -fsSL https://install.tapstate.dev/cli | TAPSTATE_TELEMETRY=off sh
+```
+
+You can also export `TAPSTATE_TELEMETRY=off` in your shell environment before running the installer. When disabled, the installer sends no network events and creates no `.installation-id` file.
+
 ## Other installation methods
 
 ### Pin a release
