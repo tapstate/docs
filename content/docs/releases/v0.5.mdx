@@ -1,0 +1,124 @@
+---
+title: v0.5
+description: Capture enterprise data from Oracle and SQL Server, enrich live streams with SQL joins, pause pipelines without data loss, and build with rapid scaffolding in the v0.5 preview line.
+ai:
+  kind: reference
+  id: release-v0_5
+  maturity: preview
+  aliases: [tapstate v0.5, tapstate v0.5.0, tapstate release notes, tapstate preview release]
+---
+
+Released September 16, 2026 · Current preview: v0.5.0
+
+`v0.5` expands tapstate's single-node preview with official enterprise database
+capture for Oracle and SQL Server, real-time SQL stream joins, zero-data-loss
+pipeline pausing, schema drift reconciliation, and AI agent integration. Use it
+with non-production systems and sample data.
+
+See the [GitHub releases](https://github.com/tapstate/tapstate/releases) for
+the published CLI archives, individual SHA-256 files, `checksums.txt`, and
+`platform-minimums.txt`.
+
+## What changed
+
+### v0.5.0
+
+#### Connectors and sources
+
+- **Capture enterprise data from Oracle and SQL Server**: Stream live data from
+  Oracle Database and Microsoft SQL Server into tapstate pipelines. The newly certified
+  [`oracle`](/docs/connectors/oracle) and [`sqlserver`](/docs/connectors/sqlserver)
+  source connectors support initial table snapshots and continuous CDC with exact
+  numeric precision preservation.
+- **Scale MongoDB change streams and maintain exact precision**: Configure multi-threaded
+  change-stream decoding with [`decodeThreads` and `decodeQueueSize`](/docs/connectors/mongodb#source-read-settings)
+  for busy replica sets, and preserve exact monetary values with native BSON `Decimal128` support.
+
+#### Pipelines and stream processing
+
+- **Enrich live streams with SQL joins (Preview)**: Combine streaming facts with
+  dimension tables using standard ANSI SQL (`INNER JOIN`, `LEFT JOIN`) directly in
+  pipelines with the [`join` transform](/docs/reference/transforms#join) under `engine: builtin`,
+  eliminating the need for custom enrichment scripts.
+- **Pause pipelines without reloading historical data**: Safely pause running pipelines
+  for configuration or schema updates using [`tapstate stop --keep-state`](/docs/reference/cli#stop-and-restart-a-pipeline).
+  It preserves CDC offset checkpoints so the pipeline resumes from where it stopped instead
+  of requiring a costly full re-read.
+- **Reconcile upstream schema changes safely**: Inspect schema drift across pipeline steps
+  with [`tapstate derived-schema <pipeline-id>`](/docs/reference/cli#synchronize-schema-changes-with-derived-schema).
+  Review a three-way comparison and adopt updated field mappings with `--accept` before restarting data flow.
+
+#### Developer tools and platform
+
+- **Scaffold resources with dedicated CLI commands**: Bootstrap clean, validated configurations
+  for `source`, `pipeline`, `transform`, `view`, and `serve` resources using
+  [`tapstate add <kind>`](/docs/reference/cli#add). The legacy `tapstate new --kind` syntax is deprecated.
+- **Persist workbench canvas layouts and avoid edit collisions**: Visual layout positions
+  are saved across sessions via [pipeline layout endpoints](/docs/reference/rest-api#pipeline-layout-endpoints),
+  and [pipeline updates](/docs/reference/rest-api#pipeline-definition-endpoints) enforce
+  optimistic `If-Match` concurrency control to prevent accidental overwrites.
+- **Integrate AI developer agents**: Connect AI coding assistants to your workspace through
+  Model Context Protocol (MCP) using read-only [MCP tools](/docs/reference/mcp#read-only-tools)
+  like `source_list` and `pipeline_list` to discover declared sources and pipeline topologies.
+
+## Release components
+
+The release includes native CLI bundles for macOS and glibc-based Linux on
+`arm64` and `x64`. The release metadata recommends macOS 15.0 and glibc 2.34 or
+newer; these are warnings from the installer, not compatibility gates. Verify a
+manually downloaded archive against its `.sha256` file or `checksums.txt`
+before extracting it.
+
+Server container images (`ghcr.io/tapstate/tapstate`) do not bundle database drivers
+by default to keep images lightweight and isolate vendor licenses. Official connector JARs
+(`oracle`, `sqlserver`, `mysql`, `postgres`, and `mongodb`) can be installed using
+`tapstate register <id>` or downloaded directly from the
+[connector preview release assets](https://github.com/tapstate/tapstate/releases/tag/connectors-preview).
+In air-gapped or pre-seeded environments, mount downloaded JARs into `TAPSTATE_CONNECTORS_SEED_DIR`
+for automatic startup registration. See [Register and test connectors](/docs/guides/register-connectors).
+
+## Known limitations and issues
+
+This remains a preview rather than a production deployment target. Delivery
+for a change the connector reads is at least once, not exactly once. An
+insert-only target can receive duplicates when snapshot and CDC overlap, and a
+change written while a change stream positions itself around the initial
+snapshot can be missed.
+
+- **SQL joins are in Preview and require exact 1:1 dimension keys.** Joining against
+  non-unique dimension rows causes row displacement and emits diagnostic warnings.
+  Complex SQL features including `WHERE`, `GROUP BY`, aggregation, subqueries, and
+  outer-dimension fanout are not supported in this release.
+- **Connectors supported as write targets.** In this preview, MongoDB is the supported
+  pipeline synchronization target. Oracle and SQL Server are certified as data sources
+  (snapshots and CDC) and are not supported as write targets.
+- **In-place upgrades do not resume a pipeline.** After an in-place upgrade,
+  a pipeline can report `RUNNING` without carrying data and cannot start again.
+  Stop it and start it again to reload from the beginning. Track progress in
+  [issue #98](https://github.com/tapstate/tapstate/issues/98).
+- **Purge and reload cannot remove rows deleted while the pipeline was down.**
+  A new full load writes current source rows but has no event for a historical
+  deletion. If retaining delete propagation matters, stop without purging
+  state (`--keep-state`) so the next run resumes from its recorded position. Track progress in
+  [issue #104](https://github.com/tapstate/tapstate/issues/104).
+
+## Get started
+
+- [Install the CLI](/docs/overview/install) for offline authoring or to connect
+  to an existing server.
+- Run the [Quickstart playground](/docs/overview/quickstart) to evaluate local
+  pipelines with sample databases.
+- [Register connectors](/docs/guides/register-connectors) to download and register
+  official connector JARs for Oracle, SQL Server, MySQL, PostgreSQL, and MongoDB.
+- Read the [CLI reference](/docs/reference/cli) for scaffolding commands and
+  checkpoint operations.
+- Read the [transforms reference](/docs/reference/transforms) to configure `join`,
+  `nest`, and `js` transforms.
+- Read the [Oracle connector guide](/docs/connectors/oracle) and [SQL Server connector guide](/docs/connectors/sqlserver)
+  for database prerequisites and CDC configuration.
+- Explore the [Connectors directory](/docs/connectors) for configuration schemas and
+  supported capture modes across all connectors.
+- Read the [REST API reference](/docs/reference/rest-api) for pipeline layout and
+  optimistic concurrency controls.
+- Use the [v0.5.0 release assets](https://github.com/tapstate/tapstate/releases/tag/v0.5.0)
+  when you need this exact preview build.

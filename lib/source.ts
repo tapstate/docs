@@ -255,7 +255,7 @@ The single-node tapstate server captures both sources through an initial snapsho
 The same state is available through the interactive tapstate CLI, the authenticated REST data-browser endpoints, and MCP tools such as \`data_browser_collections\` and \`data_browser_find\` for AI agents. All three surfaces call the running tapstate server; none replaces or starts it.`)
     .replace(/<CliServerWorkflow\s*\/>/g, `### CLI and server responsibilities
 
-- **Offline authoring (no server):** The CLI works with a local workspace to create and inspect resources, and to run 'new', 'validate', 'explain', 'ls', and 'desc'.
+- **Offline authoring (no server):** The CLI works with a local workspace to create and inspect resources, and to run 'add', 'validate', 'explain', 'ls', and 'desc'.
 - **Connected operation (server required):** The CLI sends authenticated requests to a tapstate server for 'apply', 'test', 'discover', 'start', 'status', 'metrics', and 'logs'.`)
     .replace(/<McpConnectionFlow\s*\/>/g, `### MCP connection path
 

@@ -26,6 +26,17 @@ import { ConnectorProfile, ValidationStatusGuide } from '@/components/mdx';
 
 ## Before you begin
 
+### Connector availability
+
+The MongoDB connector is registered automatically by the Quickstart script. On standalone or fresh server container deployments, the connector catalog starts empty. Confirm that MongoDB is registered before authoring connections:
+
+```text
+connectors
+register mongodb
+```
+
+See [When registration is required](/docs/guides/register-connectors#when-registration-is-required).
+
 ### Target
 
 Grant write access only to the destination database. The current target path
@@ -97,6 +108,7 @@ tapstate -w tapstate-work
 ```text
 connect http://127.0.0.1:8080
 login admin
+register mongodb -o json
 apply
 test operational_state -o json
 ```
@@ -136,17 +148,31 @@ for the full sequence.
 | `sslCA` | With certificate validation | — | CA certificate material. |
 | `mongodbLoadSchemaSampleSize` | No | `1000` | Documents sampled for schema discovery. |
 
+### Source read settings
+
+When reading change-data-capture events from MongoDB as a pipeline source:
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `decodeThreads` | No | `8` | Number of worker threads allocated for parallel CDC event decoding. |
+| `decodeQueueSize` | No | `32` | Maximum event queue capacity per decode worker thread. |
+
+Tune `decodeThreads` upward on multi-core runtime hosts when reading from high-throughput MongoDB replica sets with heavy change volume. Increasing `decodeQueueSize` helps absorb bursty change events but increases heap usage.
+
 ### Data compatibility
 
-| Family | Supported baseline |
-|---|---|
-| Text and code | `String`, JavaScript, `Symbol` |
-| Numeric | `Double`, `Int32`, `Int64`, `Decimal128` |
-| Composite | `Document`, `Array` |
-| Binary and identifiers | `Binary`, `ObjectId` |
-| Date and time | `Date`, `Timestamp` |
-| Other | `Boolean`, `MinKey`, `MaxKey`, `Null` |
+| Family | Supported baseline | Portable representation |
+|---|---|---|
+| Text and code | `String`, JavaScript, `Symbol` | UTF-8 string |
+| Numeric | `Double`, `Int32`, `Int64`, `Decimal128` | Number or stringified decimal |
+| Composite | `Document`, `Array` | Nested map or array |
+| Binary and identifiers | `Binary`, `ObjectId` | Base64-encoded string (`Binary`), 24-character hexadecimal string (`ObjectId`) |
+| Date and time | `Date`, `Timestamp` | Millisecond instant (`Date`), epoch seconds instant (`Timestamp`) |
+| Regular expressions | `RegEx` | Pattern string formatted as `/pattern/flags` |
+| Other | `Boolean`, `MinKey`, `MaxKey`, `Null` | Boolean, literal representation, null |
 
-In the current MySQL-to-MongoDB materialization path, `TIMESTAMP(3)` becomes a BSON `Date` at
-millisecond precision; it preserves the instant, not the source time-zone or
-offset representation.
+In the current materialization paths:
+
+- Relational `TIMESTAMP(3)` and `DATETIME` map to BSON `Date` preserving the UTC instant at millisecond precision; source time zone or offset formatting is not stored.
+- BSON `Timestamp` values are decoded using seconds since the Unix epoch. The intra-second counter used in internal change streams is not carried into standard date-time values.
+- Portable values serialize complex types into JSON-compatible shapes (`ObjectId` as hex, `Binary` as Base64, and `RegEx` as `/pattern/flags`).

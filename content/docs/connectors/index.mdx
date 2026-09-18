@@ -1,6 +1,6 @@
 ---
 title: Connector guides
-description: Configure the current MySQL and PostgreSQL source paths into MongoDB operational state
+description: Configure MySQL, PostgreSQL, Oracle, and SQL Server source paths into MongoDB operational state
 sidebar:
   order: 1
 ai:
@@ -11,10 +11,10 @@ ai:
 
 import { ConnectorDirectoryMatrix } from '@/components/mdx';
 
-The current tapstate preview publishes MySQL and PostgreSQL as source engines
-and MongoDB as the operational-state target. Both sources support an initial
-snapshot followed by CDC. The Quickstart demonstrates one pipeline that
-assembles MySQL orders and PostgreSQL shipments into a MongoDB document.
+The current tapstate preview publishes MySQL, PostgreSQL, Oracle,
+and SQL Server as source engines and MongoDB as the operational-state
+target. Sources support an initial snapshot followed by CDC. The Quickstart demonstrates
+one pipeline that assembles MySQL orders and PostgreSQL shipments into a MongoDB document.
 
 Select a current connector to prepare its external system and author the
 connection resource. Before using a real endpoint, run a
@@ -27,8 +27,8 @@ connection resource. Before using a real endpoint, run a
 The directory uses a status separate from **Maturity**:
 
 - **Current path** means the connector has a published role in the current
-  product path. MySQL and PostgreSQL are current sources; MongoDB is the
-  current target.
+  product path. MySQL, PostgreSQL, Oracle, and SQL Server are current sources;
+  MongoDB is the current target.
 
 Other connector preparation material is not published in this public
 documentation site and is not presented as a supported workflow.
@@ -45,6 +45,17 @@ registered.
 Maturity does not mean that a connector JAR is bundled with every tapstate
 release or that every listed role and mode is available in the current product
 path.
+
+## Connector distribution and lifecycle
+
+Tapstate manages connector artifacts and licenses separately from the core server image:
+
+- **Empty catalog on clean base images**: Base container images (`ghcr.io/tapstate/tapstate`) do not pre-bundle connector JARs to reduce download size, isolate vendor driver terms (such as the Oracle Free Use Terms and Microsoft JDBC Driver MIT license), and maintain separation between base Apache-2.0 runtime code and commercial connector terms.
+- **Quickstart automation**: The quickstart script automatically downloads and registers MySQL, PostgreSQL, and MongoDB. Oracle and SQL Server are not part of the quickstart download and must be registered explicitly.
+- **Persistence across upgrades**: Registered connector metadata is stored in the server backend (`tapstate.connectors` collection in MongoDB). Upgrading the tapstate server image preserves all previously registered connectors. Newly certified connectors in v0.5 (Oracle and SQL Server) must be registered once by an administrator. Re-registering existing connectors is idempotent and hot-replaces the runtime JAR without breaking existing pipelines.
+- **Automated seeding for production**: Production and air-gapped deployments can mount pre-staged connector JARs into a seed directory (`TAPSTATE_CONNECTORS_SEED_DIR`) for automatic registration when the server starts.
+
+See [Register and test connectors](/docs/guides/register-connectors) for CLI syntax, remote mirrors, and offline workflows.
 
 ## How to read roles and modes
 

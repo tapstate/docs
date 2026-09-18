@@ -844,7 +844,7 @@ export function ConnectorDirectoryMatrix() {
     {
       status: 'current' as const,
       title: 'Current connector path',
-      description: 'Connector roles published for the current MySQL- and PostgreSQL-to-MongoDB operational-state path.',
+      description: 'Connector roles published for the current MySQL, PostgreSQL, Oracle, and SQL Server to MongoDB operational-state path.',
       icon: CircleCheck,
       iconClassName: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/45 dark:text-emerald-300',
     },

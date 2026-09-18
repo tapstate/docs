@@ -26,16 +26,20 @@ are unresolved. It never opens a network connection.
 
 ## When registration is required
 
-- **Quickstart:** no action is required. The Quickstart downloads and
-  registers the official MySQL, PostgreSQL, and MongoDB JARs before it applies
-  the sample workspace.
-- **A server started with connector artifacts in its seed directory:** no manual
-  registration is required. The server registers those artifacts at startup.
-- **Any other connected server:** register an artifact only when the connector
-  you need is not already available to that server.
+Tapstate server container images (`ghcr.io/tapstate/tapstate`) do not bundle connector JARs or register connectors by default. Keeping connector artifacts separate minimizes container footprints and ensures third-party driver license terms (such as Oracle JDBC terms) remain isolated from the base runtime.
+
+Whether you need to register a connector depends on how the server is deployed:
+
+- **Quickstart:** no manual registration is required for MySQL, PostgreSQL, or MongoDB. The Quickstart downloads and registers those three artifacts automatically before applying the sample workspace. Oracle and SQL Server are not part of the demo and must be registered explicitly if needed.
+- **New server deployments:** register each connector artifact before applying connections that reference it. Run `connectors -o json` to inspect the catalog; if a connector is absent, register it by published ID (`register <id>`) or upload a local JAR.
+- **Upgrades from prior versions:**
+  - Existing registered connectors persist in the backend store across server container upgrades. You do not need to re-register existing connectors after updating the server image.
+  - Newly certified connectors (`oracle` and `sqlserver` in v0.5) are not automatically registered during upgrade; run `register oracle` or `register sqlserver` before using them.
+  - Re-registering an existing connector with an updated JAR upgrades that connector on the server. Re-registering an identical artifact is a safe no-op with `newlyRegistered: false`.
+- **Pre-seeded offline deployments:** a server started with connector artifacts in its seed directory (`TAPSTATE_CONNECTORS_SEED_DIR`, default `/var/lib/tapstate/connectors`) scans and registers those artifacts automatically at startup.
 
 After you connect and sign in, run `connectors -o json` to inspect the server's
-catalog. If the MySQL, PostgreSQL, or MongoDB artifact you need is already available, skip
+catalog. If the connector artifact you need is already available, skip
 the registration step and continue with [Apply the connections](#apply-the-connections).
 
 ## Before you begin
@@ -43,39 +47,42 @@ the registration step and continue with [Apply the connections](#apply-the-conne
 - [Bootstrap and authenticate](/docs/guides/bootstrap-and-auth).
 - Create and validate the connection resources locally.
 
-## Get the current preview connector JARs
+## Official preview connector artifacts
 
-The current preview publishes the official MySQL, PostgreSQL, and MongoDB
-artifacts through the [connector preview release](https://github.com/tapstate/tapstate/releases/tag/connectors-preview).
-Download `mysql-connector.jar`, `postgres-connector.jar`, or
-`mongodb-connector.jar` to a local directory that the CLI can read. Do not use
-a catalog entry, roadmap page, or unlisted JAR as evidence that the current
-server will accept it.
+The current preview officially certifies five database kinds across 16 accepted connector IDs.
+Pre-built downloadable artifacts are published for the five primary base connector IDs:
+
+| Database | Primary downloadable ID | Accepted connector IDs | Certified use |
+|---|---|---|---|
+| MySQL | `mysql` | `mysql`, `aliyun-rds-mysql`, `tencent-db-mysql`, `aws-rds-mysql` | Read (Snapshot + CDC) |
+| PostgreSQL | `postgres` | `postgres`, `aliyun-rds-postgres`, `tencent-db-postgres`, `aws-rds-postgres` | Read (Snapshot + CDC) |
+| MongoDB | `mongodb` | `mongodb`, `mongodb-atlas`, `aliyun-db-mongodb`, `tencent-db-mongodb` | Read and Write |
+| Oracle | `oracle` | `oracle`, `aliyun-rds-oracle`, `aws-rds-oracle` | Read (Snapshot + CDC) |
+| SQL Server | `sqlserver` | `sqlserver`, `aliyun-rds-sqlserver` | Read (Snapshot + CDC) |
+
+Official artifacts for the five primary base IDs are published through the [connector preview release](https://github.com/tapstate/tapstate/releases/tag/connectors-preview).
+The Oracle JAR bundles `ojdbc8`, `orai18n`, and `xdb` under the Oracle Free Use Terms;
+the SQL Server JAR bundles the Microsoft JDBC Driver under the MIT License. Their
+implementations are subject to the applicable commercial connector terms.
 
 ## Current preview registration boundary
 
-The current preview documents MySQL and PostgreSQL as source artifacts and
-MongoDB as the operational-state target artifact. A connector catalog entry, a
-roadmap page, or a JAR by itself does not expand that public runtime boundary.
+The current preview documents MySQL, PostgreSQL, Oracle, and SQL Server as source
+read artifacts, and MongoDB as the operational-state target artifact. A `serve.sync`
+element installs onto the MongoDB kind and no other; applying a pipeline whose sync
+names any other connector is refused with `dsl.unsupported-target-connector`.
 
-Registering an artifact with another connector ID returns
+Registering an artifact with an unaccepted connector ID returns
 `connector.not-official`; the server does not register it. The same boundary
 applies when a server scans a connector seed directory.
 
 ## Register connector artifacts
 
-The JAR does not need to live in the workspace. The CLI uploads it, and the
-server stores the accepted artifact. For example:
+Registering a connector requires an authenticated administrator session (`login admin`).
 
-```text
-tapstate-work/
-├── connector-artifacts/
-│   ├── mysql-connector.jar
-│   └── mongodb-connector.jar
-└── work/
-```
+### Register by published ID
 
-Start an authenticated REPL:
+You can download and register official connectors directly by ID without manually fetching JAR files:
 
 ```bash
 tapstate -w work
@@ -84,10 +91,28 @@ tapstate -w work
 ```text
 connect http://127.0.0.1:8080
 login admin
-register ../connector-artifacts/mysql-connector.jar -o json
-register ../connector-artifacts/postgres-connector.jar -o json
-register ../connector-artifacts/mongodb-connector.jar -o json
+register mysql -o json
+register postgres -o json
+register mongodb -o json
+register oracle -o json
+register sqlserver -o json
 connectors -o json
+```
+
+The CLI resolves and downloads the exact published artifact from the GitHub `connectors-preview`
+release, verifies its integrity, and uploads it to the server. Automatic download by ID is supported
+for the five primary base connector IDs (`mysql`, `postgres`, `mongodb`, `oracle`, `sqlserver`). To
+register a managed cloud variant or custom build, pass the path to its local JAR file as described below.
+To route downloads through an internal HTTPS mirror, set the `TAPSTATE_CONNECTORS_URL` environment
+variable in your CLI environment.
+
+### Register from a local file or directory
+
+You can also stage JAR files locally. When a path is passed to `register`, local files take precedence over published IDs:
+
+```text
+register ../connector-artifacts/mysql-connector.jar -o json
+register ../connector-artifacts/ -o json
 ```
 
 A registration result includes the connector ID, content hash, PDK API version when declared, source, and `newlyRegistered`. Registering the identical artifact again is an idempotent no-op with `newlyRegistered: false`.

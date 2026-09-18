@@ -52,7 +52,7 @@ transforms:
 | `js` | Accepted | Wired |
 | `union` | Accepted | Wired |
 | `nest` | Accepted | Wired |
-| `join` | Accepted | Refused by the current pipeline DAG builder |
+| `join` | Accepted | Wired (Preview) |
 
 ## `filter`
 
@@ -107,8 +107,12 @@ for the corresponding diagnostic codes.
     }
 ```
 
-The runtime uses GraalVM JavaScript and sends every event through the step. Test
-scripts with representative insert, update, delete, and non-row events.
+The runtime uses GraalVM JavaScript and sends every event through the step,
+including DDL and data change events (unlike `filter` and `map` which evaluate
+only row data). Connector converted value provenance metadata is preserved
+across unmutated field slots; writing a new value to a slot discards that slot's
+source provenance. Test scripts with representative insert, update, delete, and
+non-row events.
 
 ## `union`
 
@@ -178,7 +182,11 @@ Each `embed` block attaches an auxiliary stream to the document:
   - **Deletion**: When a referenced row is deleted, it is removed from all
     documents pointing to it.
   - **Repointing**: Updating a parent's pointer unbinds the old referenced row
-    and attaches the new one.
+    and attaches the new one. Removing the reference record requires knowing where
+    it previously pointed; the source connector must provide before images. If
+    the source cannot emit before images or is configured with `before_image: none`,
+    the update is refused with `nest.reference-tracking-requires-before-image`.
+
 
 ### Nest diagnostics
 
@@ -190,6 +198,13 @@ The engine validates nest topologies and enforces bounds at runtime:
   referenced row than the configured fanout capacity limit permits.
 - `nest.referenced-level-carries-embeds`: A pointed-at referenced level itself
   declares nested `embed` definitions.
+- `nest.reference-tracking-requires-before-image`: An update on a stream behind an
+  embed updated a pointed-at reference without an earlier row image. Configure
+  the source to provide before images (such as PostgreSQL `REPLICA IDENTITY FULL`).
+- `nest.key-change-tracking-requires-before-image`: An update on a stream tracking
+  key changes emitted an update whose before image was missing required key columns
+  (such as minimal binlog row images). Configure the source to send complete before
+  images (such as MySQL `binlog_row_image=FULL`).
 
 ### Related guides
 
@@ -203,18 +218,50 @@ The engine validates nest topologies and enforces bounds at runtime:
 ## `join`
 
 ```yaml
-- id: customer-order-summary
+- id: customer-orders
   from:
-    customers: customers
     orders: orders
+    customers: customers
   type: join
-  engine: duckdb
+  engine: builtin
   sql: |
-    SELECT c.customer_id, c.name, count(o.id) AS order_count
-    FROM customers c
-    LEFT JOIN orders o ON o.customer_id = c.customer_id
-    GROUP BY c.customer_id, c.name
+    SELECT o.id AS order_id, o.amount, c.name AS customer_name, c.tier
+    FROM orders o
+    LEFT JOIN customers c ON o.customer_id = c.id
 ```
 
-The Schema describes the Join declaration, but the current preview runtime
-refuses this stateful transform. Keep it out of runnable preview pipelines.
+`join` maintains a flattened streaming view as source tables change, applying the same SQL
+logic to initial snapshot loads and continuous change-data capture.
+
+### Prerequisites and relationship rules
+
+- **Execution engine**: The step requires `engine: builtin`. It has no default; the built-in carrier is the only engine supported for joins in this release.
+- **Single driving fact source**: The `FROM` clause must designate exactly one driving
+  fact table. All dimension tables must join directly to this driving source.
+  Dimension-to-dimension chains are unsupported.
+- **Dimension key uniqueness (no fan-out)**: Each joined dimension must be unique on its
+  complete join key. One fact row produces at most one output row. If duplicate dimension
+  keys arrive from the source, the later-arriving row displaces the earlier match and logs
+  a WARNING diagnostic (`engine.join-dimension-row-displaced`). One-to-many or many-to-many
+  fan-out is not supported.
+- **Output key projection**: For default `upsert` sync targets, every primary-key column
+  of the driving fact table must be directly projected in the `SELECT` statement (aliases
+  are allowed, such as `o.id AS order_id`). Expressions cannot substitute for key columns.
+  If any driving primary-key column is missing, the pipeline refuses initialization with
+  `actuation.join-output-key-not-published`. Append-only targets are exempt from this requirement.
+
+### SQL subset
+
+| Construct | Supported boundary |
+|---|---|
+| Joins | `INNER JOIN`, `LEFT JOIN` on equality conditions directly from the driving source to each dimension. `RIGHT JOIN` is normalized to `LEFT JOIN` with swapped operands. |
+| `ON` conditions | Conjunctions (`AND`) of qualified column equalities; composite keys are supported. |
+| Projection | Direct column references, column aliases, and supported per-row scalar expressions. |
+| Unsupported | `FULL OUTER`, `CROSS`, `NATURAL`, non-equality joins (`<`, `>`, `!=`), `WHERE`, `DISTINCT`, `GROUP BY`, `HAVING`, aggregates, window functions (`OVER`), subqueries, `ORDER BY`, `LIMIT`. |
+
+### Join diagnostics
+
+- `actuation.join-output-key-not-published`: The join SELECT list does not project all primary-key columns of the driving fact table, preventing upsert targets from identifying output records.
+- `actuation.join-source-not-declared`: The SQL query references a source table alias not declared in the step's `from` mapping.
+- `actuation.join-source-key-missing`: The driving fact table has no primary key discovered.
+- `engine.join-dimension-row-displaced`: A second dimension row arrived under an existing join key, displacing the earlier row. The target will hold fewer joined rows than a full relational query describes.

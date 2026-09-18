@@ -11,9 +11,9 @@ import { LinkCard, CardGrid } from '@/components/mdx';
 
 A **connector** defines how tapstate understands a system. A **connection** supplies the endpoint, credentials, scope, and role for one use of that connector.
 
-In the current product path, MySQL and PostgreSQL are published sources and
-MongoDB is the published operational-state target. Broader connector metadata
-and roadmap pages do not expand that current path.
+In the current product path, MySQL, PostgreSQL, Oracle, and SQL Server
+are published sources and MongoDB is the published operational-state target.
+Broader connector metadata and roadmap pages do not expand that current path.
 
 ```text
 Connector definition     Connection resource         Pipeline reference
@@ -31,6 +31,8 @@ The connector definition answers questions that should stay consistent across en
 - Which read modes are declared?
 - Which configuration keys and value shapes are recognized?
 - Which preparation steps and limitations apply to the external system?
+
+Connectors must be registered with the server runtime before connections can be applied. Base container images start with an empty catalog to isolate vendor-specific drivers and commercial connector terms, while Quickstart registers common demonstration connectors. See [Register and test connectors](/docs/guides/register-connectors).
 
 The [connector directory](/docs/connectors) separates the current product roles
 from roadmap entries. A connector definition

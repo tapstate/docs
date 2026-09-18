@@ -63,6 +63,7 @@ const descriptionOverrides = {
   'NestRoot.trackKeyChanges': 'When true, moves the assembled document when its root key changes. Requires the source to provide a before image.',
   'Embed.trackKeyChanges': 'When true, moves an embedded subtree when its array key, parent key, or child-reference key changes. Requires the source to provide a before image.',
   'SyncElement.write_mode': 'How rows are written to the target. Upsert requires a primary key in each selected source table\'s discovered schema; append is for insert-only delivery.',
+  'QueryElement.backend': 'Reserved: the sync id whose sink would serve this query as an API. Omit for parallel egress from the view store.',
 };
 
 function refName(ref) {
@@ -154,6 +155,13 @@ they do not prove that every declared field or surface is available in the
 current preview runtime. For the execution boundary, see [Resource grammar](/docs/reference/dsl-grammar#declaration-and-execution-are-different-checks).
 
 ${body}
+
+## Field naming constraints and document stores
+
+Field and table names follow standard SQL naming identifiers. When writing to document stores (such as MongoDB):
+
+- **Dots in column names**: A column name containing a dot (such as \`price.usd\`) is written as a literal dotted field key. In document stores like MongoDB, querying by path interprets the dot as navigation into a nested document, which will not match literal dotted keys unless explicitly escaped. Furthermore, MongoDB indexes cannot be created on keys containing literal dots.
+- **Apply-time advisory**: When applying a pipeline that maps dotted column names to a document-store sink, tapstate reports an advisory diagnostic \`schema.column-name-reads-as-a-path\` (Severity: WARNING). This warning does not refuse the pipeline or block execution, but alerts you to the querying and indexing limitation. If you plan to query or index the field, rename the column at the source or use a \`map\` transform step to alias the dot to an underscore (for example, \`price_usd\`) before writing to the target.
 
 ## Runtime boundary
 

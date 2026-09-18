@@ -46,7 +46,9 @@ metadata:
 ### `source`
 
 A source resource ID or an array of IDs. Every referenced resource must exist
-in the validated workspace. The sources can use different connectors; for
+in the validated workspace. Blank or newly initialized draft pipelines specify
+an empty array (`source: []`) while assembling the pipeline structure before input
+sources are attached. The sources can use different connectors; for
 example, one pipeline can read MySQL orders and PostgreSQL shipments. A source
 can select multiple tables; that selection lives in the referenced source's
 `tables` field, not in `pipeline.source`.
