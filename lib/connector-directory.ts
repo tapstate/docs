@@ -49,8 +49,8 @@ export const connectorCategories: Array<{
 export const connectorDirectory: ConnectorDirectoryItem[] = [
   { slug: 'mysql', id: 'mysql', title: 'MySQL', category: 'databases', maturity: 'ga', useAs: ['source', 'target'], modes: ['snapshot', 'cdc'] },
   { slug: 'postgresql', id: 'postgres', title: 'PostgreSQL', category: 'databases', maturity: 'ga', capabilityAuthority: 'server', useAs: ['source', 'target'], modes: ['snapshot', 'cdc'] },
-  { slug: 'oracle', id: 'oracle', title: 'Oracle', category: 'databases', maturity: 'ga', capabilityAuthority: 'server', useAs: ['source', 'target'], modes: ['snapshot', 'cdc'] },
-  { slug: 'sqlserver', id: 'sqlserver', title: 'SQL Server', category: 'databases', maturity: 'ga', capabilityAuthority: 'server', useAs: ['source', 'target'], modes: ['snapshot', 'cdc'] },
+  { slug: 'oracle', id: 'oracle', title: 'Oracle', category: 'databases', maturity: 'ga', capabilityAuthority: 'server', useAs: ['source'], modes: ['snapshot', 'cdc'] },
+  { slug: 'sqlserver', id: 'sqlserver', title: 'SQL Server', category: 'databases', maturity: 'ga', capabilityAuthority: 'server', useAs: ['source'], modes: ['snapshot', 'cdc'] },
   { slug: 'mongodb', id: 'mongodb', title: 'MongoDB', category: 'databases', maturity: 'ga', useAs: ['source', 'target'], modes: ['snapshot', 'cdc'] },
   { slug: 'mongodb-atlas', id: 'mongodb-atlas', title: 'MongoDB Atlas', category: 'databases', maturity: 'ga', useAs: ['source', 'target'], modes: ['snapshot', 'cdc'] },
   { slug: 'tidb', id: 'tidb', title: 'TiDB', category: 'databases', maturity: 'ga', useAs: ['source', 'target'], modes: ['snapshot', 'cdc'] },
@@ -112,6 +112,8 @@ export const connectorDirectory: ConnectorDirectoryItem[] = [
 export const connectorProductProfiles: Record<string, ConnectorProductProfile> = {
   mysql: { status: 'current', useAs: ['source'], modes: ['snapshot', 'cdc'] },
   postgresql: { status: 'current', useAs: ['source'], modes: ['snapshot', 'cdc'] },
+  oracle: { status: 'current', useAs: ['source'], modes: ['snapshot', 'cdc'] },
+  sqlserver: { status: 'current', useAs: ['source'], modes: ['snapshot', 'cdc'] },
   mongodb: { status: 'current', useAs: ['target'], modes: [] },
 };
 
@@ -166,7 +168,7 @@ export function renderConnectorDirectoryForLLM() {
 
   return `## Current connector path
 
-The current product directory publishes MySQL and PostgreSQL as Snapshot and CDC sources, with MongoDB as the operational-state target. The Quickstart demonstrates one cross-source path: MySQL orders and PostgreSQL shipments assembled into a MongoDB document.
+The current product directory publishes MySQL, PostgreSQL, Oracle, and SQL Server as Snapshot and CDC sources, with MongoDB as the operational-state target. The Quickstart demonstrates one cross-source path: MySQL orders and PostgreSQL shipments assembled into a MongoDB document.
 
 | Connector | Guide maturity | Published role | Read modes |
 |---|---|---|---|

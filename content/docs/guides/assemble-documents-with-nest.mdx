@@ -58,7 +58,7 @@ id: orders_db
 connector: mysql
 config:
   host: mysql.internal
-  port: "3306"
+  port: 3306
   database: shop
   username: ${MYSQL_USER}
   password: ${MYSQL_PASSWORD}
@@ -75,7 +75,7 @@ id: fulfillment_db
 connector: postgres
 config:
   host: postgres.internal
-  port: "5432"
+  port: 5432
   database: fulfillment
   schema: public
   user: ${POSTGRES_READER_USER}
@@ -180,8 +180,9 @@ test matrix, see [Plan nest capacity and delivery behavior](/docs/guides/nest-th
 
 - Every nested relationship must point from child to parent.
 - Sibling branches at the same level must agree on the parent identity.
-- `nest` does not perform arbitrary lookups; the separately declared `join`
-  transform remains refused by the current runtime.
+- `nest` does not perform arbitrary lookups; use the separately declared
+  [`join` transform](/docs/reference/transforms#join) for stream-to-stream
+  joins between a driving fact table and dimension sources.
 - The current preview is single-node and does not provide production recovery
   guarantees.
 

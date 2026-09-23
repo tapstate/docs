@@ -57,7 +57,7 @@ connector: mysql
 mode: cdc
 config:
   host: mysql
-  port: "3306"
+  port: 3306
   database: appdb
   username: ${MYSQL_USER}
   password: ${MYSQL_PASSWORD}
@@ -72,7 +72,7 @@ connector: postgres
 mode: cdc
 config:
   host: postgres
-  port: "5432"
+  port: 5432
   database: appdb
   schema: public
   user: ${POSTGRES_USER}
@@ -127,7 +127,7 @@ both; a view-only pipeline still materializes records and does not need `serve`.
 | Surface | Schema/validator | Current preview runtime |
 |---|---|---|
 | Resource kinds | `source`, `pipeline`, `transform`, `view`, `serve` | The Quickstart declares `source` + `pipeline` with an inline `view`. |
-| Transforms | `filter`, `map`, `js`, `union`, `nest`, `join` | `filter`, `map`, `js`, `union`, and `nest` are wired. The runtime refuses `join`. |
+| Transforms | `filter`, `map`, `js`, `union`, `nest`, `join` | `filter`, `map`, `js`, `union`, and `nest` are wired. `join` is wired in preview under `engine: builtin` with a single driving fact source, unique dimension keys, and no fan-out. |
 | Serve declarations | `sync`, `query`, `push` | `serve.sync` delivers to an external target; the Quickstart's managed view does not need a `serve` block. Do not infer an executable runtime surface from Schema acceptance alone. |
 | Connector fields | Connector-specific keys are allowed structurally; known catalog fields can receive additional checks. | A catalog entry does not prove that a connector artifact is installed, registered, or available in the current release. |
 

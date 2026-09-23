@@ -20,7 +20,7 @@ connector: mysql
 mode: cdc
 config:
   host: db.internal
-  port: "3306"
+  port: 3306
   database: production
   username: ${MYSQL_USER}
   password: ${MYSQL_PASSWORD}

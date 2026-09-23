@@ -3,13 +3,13 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const cliReleaseVersion = '0.4.3';
+const cliReleaseVersion = '0.5.0';
 const cliReleaseTag = `v${cliReleaseVersion}`;
-const minorReleaseSeries = 'v0.4';
+const minorReleaseSeries = 'v0.5';
 const productDir = process.env.TAPSTATE_PRODUCT_DIR;
 const installPath = new URL('../content/docs/overview/install.mdx', import.meta.url);
 const quickstartPath = new URL('../content/docs/overview/quickstart.mdx', import.meta.url);
-const releasePath = new URL('../content/docs/releases/v0.4.mdx', import.meta.url);
+const releasePath = new URL('../content/docs/releases/v0.5.mdx', import.meta.url);
 const releasesMetaPath = new URL('../content/docs/releases/meta.json', import.meta.url);
 const install = await readFile(installPath, 'utf8');
 const quickstart = await readFile(quickstartPath, 'utf8');
@@ -53,8 +53,8 @@ for (const [label, source, expected] of expectedDocs) {
   if (!source.includes(expected)) failures.push(`${label} is not pinned to ${expected}`);
 }
 
-if (!releasesMeta.pages || releasesMeta.pages[0] !== 'v0.4') {
-  failures.push('Release metadata does not list v0.4 as the current release page');
+if (!releasesMeta.pages || releasesMeta.pages[0] !== 'v0.5') {
+  failures.push('Release metadata does not list v0.5 as the current release page');
 }
 
 if (quickstart.includes('v0.4.1') || quickstart.includes("The stack's server image remains pinned to v0.3.0")) {
@@ -110,7 +110,7 @@ if (failures.length > 0) {
 if (process.env.TAPSTATE_VERIFY_REMOTE_LINKS === '1') {
   const remoteScripts = [
     ['https://install.tapstate.dev/cli', 'PINNED_VERSION'],
-    ['https://install.tapstate.dev', 'CLI_VERSION'],
+    ['https://install.tapstate.dev', 'PINNED_VERSION'],
   ];
 
   for (const [url, variable] of remoteScripts) {

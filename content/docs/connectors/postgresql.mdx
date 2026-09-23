@@ -35,6 +35,17 @@ published tapstate target.
 
 ## Before you begin
 
+### Connector availability
+
+The PostgreSQL connector is registered automatically by the Quickstart script. On standalone or fresh server container deployments, the connector catalog starts empty. Confirm that PostgreSQL is registered before authoring connections:
+
+```text
+connectors
+register postgres
+```
+
+See [When registration is required](/docs/guides/register-connectors#when-registration-is-required).
+
 ### Prepare a source database
 
 Choose the outcome you need. Each tab is a complete preparation path; you do not need to combine steps from both tabs. In tapstate, `snapshot` copies the rows that exist when the run starts, while `cdc` performs that initial copy and then follows PostgreSQL changes from WAL.
@@ -181,7 +192,7 @@ connector: postgres
 config:
   deploymentMode: standalone
   host: postgres.internal
-  port: "5432"
+  port: 5432
   database: orders
   schema: public
   user: ${POSTGRES_READER_USER}

@@ -1,6 +1,6 @@
 ---
 title: Oracle
-description: Connect Oracle to tapstate for an initial full load, redo-log change data capture (CDC), or target writes.
+description: Connect Oracle to tapstate for an initial full load and redo-log change data capture (CDC).
 sidebar:
   order: 4
 ai:
@@ -8,9 +8,9 @@ ai:
   id: oracle
   category: databases
   maturity: ga
-  useAs: [source, target]
+  useAs: [source]
   modes: [snapshot, cdc]
-  aliases: [oracle snapshot, oracle cdc, oracle logminer, oracle source, oracle target]
+  aliases: [oracle snapshot, oracle cdc, oracle logminer, oracle source]
 ---
 
 import { ConnectorProfile, ValidationStatusGuide } from '@/components/mdx';
@@ -20,18 +20,29 @@ import { SourceModeTab, SourceModeTabs } from '@/components/source-mode-tabs';
   category="Databases"
   maturity="GA"
   maturityLabel="Generally available"
-  worksAs="Source, Target"
-  capabilities="Snapshot, CDC, DDL capture, Data write, Target DDL apply"
-  compatibility="Oracle 9i, 10g, 11g, 12c, 18c, 19c+ · Single instance and RAC"
+  worksAs="Source"
+  capabilities="Snapshot, CDC, DDL capture"
+  compatibility="Oracle 9i, 10g, 11g, 12c, 18c, 19c, 23c (Free) · Single instance and RAC"
 />
 
-Connect Oracle as a source for an initial full load and redo-log CDC, or as a
-target for pipeline writes. Complete the database preparation that matches the
-role and read mode you plan to use.
+Connect Oracle as a source for an initial full load and redo-log CDC into
+operational state or analytics targets. Complete the database preparation that matches the
+read mode you plan to use.
 
 ## Before you begin
 
-### Prepare a source database
+### Connector availability and licensing
+
+The Oracle connector artifact bundles `ojdbc8`, `orai18n`, and `xdb` under the Oracle Free Use Terms; commercial connector use remains subject to the applicable agreement. It is distributed as an official preview artifact separate from the base server image. Before applying Oracle connections on a new or upgraded server, register the connector:
+
+```text
+connectors
+register oracle
+```
+
+In production and air-gapped environments, you can also mount the connector JAR into `TAPSTATE_CONNECTORS_SEED_DIR` for automatic boot-time registration. See [When registration is required](/docs/guides/register-connectors#when-registration-is-required).
+
+### Source
 
 Choose the outcome you need. Each tab is a complete preparation path; you do not need to combine steps from both tabs.
 
@@ -64,8 +75,9 @@ GRANT SELECT ON app_schema.customers TO tapstate;
 </SourceModeTab>
 <SourceModeTab value="snapshot-cdc" label="Full load + CDC" description="Copy existing rows, then follow redo changes">
 
-Use this preparation path when the destination must begin with existing rows,
-then capture redo-log changes.
+Use this preparation path when the destination must begin with existing rows, then capture ongoing redo changes.
+
+Tapstate uses **Oracle LogMiner** as its primary CDC engine. LogMiner decodes committed transactions directly from Oracle online redo logs and archived redo logs through standard JDBC using built-in database packages (`DBMS_LOGMNR`), without requiring external binaries or host agents. Complete the database preparation below to enable LogMiner access:
 
 **1. Create a reader with snapshot and mining access**
 
@@ -88,19 +100,17 @@ GRANT SELECT ON V_$DATABASE TO tapstate;
 GRANT LOGMINING TO tapstate;
 ```
 
-Replace broad grants with equivalent object-level access when your security policy requires it, and test that the account can read the required `V$` views for the selected CDC implementation.
+On Oracle 11g, grant `EXECUTE ON DBMS_LOGMNR` and `SELECT ON V_$LOGMNR_CONTENTS` instead of `LOGMINING`.
 
-For a multitenant database, switch to the correct container before creating the user and applying grants. Common users normally require the configured common-user prefix and an explicit container scope.
+**2. Enable archive logging**
 
-**2. Enable ARCHIVELOG**
-
-Perform this change during an approved maintenance window. First check the current state:
+LogMiner reads from archived redo logs. Confirm archive-log mode is active:
 
 ```sql
 SELECT LOG_MODE FROM V$DATABASE;
 ```
 
-If it is not `ARCHIVELOG`, restart and enable it as a privileged administrator:
+If it returns `NOARCHIVELOG`, configure archive logging in a maintenance window:
 
 ```sql
 SHUTDOWN IMMEDIATE;
@@ -111,71 +121,29 @@ ALTER DATABASE OPEN;
 
 **3. Enable supplemental logging**
 
-Redo records must contain the keys needed to identify changed rows:
+Supplemental logging ensures that redo logs contain the columns needed to reconstruct update and delete events.
 
 ```sql
-ALTER DATABASE ADD SUPPLEMENTAL LOG DATA (PRIMARY KEY) COLUMNS;
+-- Minimal supplemental logging at database level:
+ALTER DATABASE ADD SUPPLEMENTAL LOG DATA;
 
--- Apply primary-key logging to one table when database-wide logging is not appropriate.
--- ALTER TABLE app_schema.orders
---   ADD SUPPLEMENTAL LOG DATA (PRIMARY KEY) COLUMNS;
-
--- Use full logging for a table without a reliable key.
+-- Identification logging on replicated tables:
 ALTER TABLE app_schema.orders
   ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
-
--- Use this only when every table in the database needs full-row logging.
--- ALTER DATABASE ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
 
 ALTER SYSTEM SWITCH LOGFILE;
 ```
 
-For a PDB, run `ALTER SESSION SET CONTAINER=PDB_name;` before applying table-level logging. If required after a database restart, open the PDBs:
-
-```sql
-ALTER PLUGGABLE DATABASE ALL OPEN;
-```
-
-Size the archive destination for the longest expected outage and confirm that archived logs remain available until tapstate has consumed them.
-
-**4. Confirm the CDC method supplied by your deployment**
-
-The preparation above is for LogMiner. Some Oracle deployments use a direct raw-log capture path with a separately installed component, different permissions, and different source-node support. Do not prepare or select it unless your tapstate deployment documents that path.
-
-**5. Decide whether to capture DDL**
-
-DDL capture has additional dictionary and object requirements. If DDL collection is available in your Oracle connection, enable it only after staging add, rename, alter, and drop-column changes.
+For a PDB, run `ALTER SESSION SET CONTAINER=PDB_name;` before applying table-level logging.
 
 </SourceModeTab>
 </SourceModeTabs>
 
-### Prepare a target database
-
-**1. Create a dedicated target schema**
-
-```sql
-CREATE USER tapstate IDENTIFIED BY "replace-with-a-secret";
-GRANT CREATE SESSION, CREATE TABLE TO tapstate;
-ALTER USER tapstate QUOTA UNLIMITED ON target_tablespace;
-```
-
-Use a bounded tablespace quota instead of `UNLIMITED` when your capacity policy requires one.
-
-**2. Grant write access**
-
-If tapstate writes into another owner's schema, grant object-level `SELECT`, `INSERT`, `UPDATE`, and `DELETE` privileges on the destination tables. Add `CREATE ANY TABLE`, index privileges, or `ALTER` only when the pipeline is explicitly allowed to create or evolve objects.
-
 ## Create a connection
 
 Tapstate stores each Oracle connection as a `.tap.yml` file in the workspace.
-Create a source connection when tapstate reads Oracle; create a target
-connection when a pipeline writes to Oracle.
 
-### Source connection
-
-Create `tapstate-work/source/orders_oracle.tap.yml`. The connection's `mode`
-controls its read capability. For a full-load-only source, use `mode: snapshot`
-instead of `mode: cdc`.
+Create `tapstate-work/source/orders_oracle.tap.yml`. For a full-load-only source, use `mode: snapshot`; for CDC, use `mode: cdc`.
 
 ```yaml title="tapstate-work/source/orders_oracle.tap.yml"
 version: tapstate/v1
@@ -184,58 +152,37 @@ id: orders_oracle
 connector: oracle
 config:
   host: oracle.internal
-  port: "1521"
-  service_name: ORCLPDB1
-  username: ${ORACLE_READER_USER}
+  port: 1521
+  thinType: SERVICE_NAME
+  database: ${ORACLE_SERVICE_NAME}
+  schema: APP_SCHEMA
+  user: ${ORACLE_READER_USER}
   password: ${ORACLE_READER_PASSWORD}
 mode: cdc
 tables:
   - ORDERS
   - /CUSTOMERS_.*/
-options:
-  include_ddl: true
 ```
 
-For a CDC-capable source, use `mode: cdc` after completing the archive-log,
-supplemental-logging, and mining preparation.
+For Oracle 23c (Free), specify `autoLog: false` in `config` because the automatic LogMiner requests `CONTINUOUS_MINE`, which is unsupported in Oracle 23c. In addition, ensure schema, table, and column identifiers remain within 30 characters; identifiers longer than 30 characters can pass snapshot reads but cause LogMiner CDC to deliver no rows without an error.
 
-### Target connection
+Connect Oracle source to an operational target such as MongoDB:
 
-An Oracle target is represented by the same `kind: source` connection resource,
-but it has no reader `mode` or `tables`.
-
-```yaml title="tapstate-work/source/analytics_oracle.tap.yml"
-version: tapstate/v1
-kind: source
-id: analytics_oracle
-connector: oracle
-config:
-  host: analytics-oracle.internal
-  port: "1521"
-  service_name: ANALYTICSPDB1
-  username: ${ORACLE_WRITER_USER}
-  password: ${ORACLE_WRITER_PASSWORD}
-```
-
-Create the pipeline after both connections exist:
-
-```yaml title="tapstate-work/pipeline/orders_to_analytics.tap.yml"
+```yaml title="tapstate-work/pipeline/orders_to_operational_state.tap.yml"
 version: tapstate/v1
 kind: pipeline
-id: orders_to_analytics
+id: orders_to_operational_state
 source: orders_oracle
 serve:
   from: /.*/
   sync:
-    - id: write_to_analytics
-      source: analytics_oracle
+    - id: write_operational_state
+      source: operational_state
       write_mode: upsert
       ddl: fail
 ```
 
-`upsert` writes new rows and updates existing rows by key; `append` only
-inserts. Change `ddl` to `apply` only after a staging pipeline proves the
-source DDL event and target schema behavior required by your workload.
+Oracle is certified as a source in the current product path. Writing to Oracle as a pipeline sync target is not supported.
 
 ## Validate the configuration
 
@@ -245,10 +192,19 @@ tapstate validate --workdir tapstate-work
 
 <ValidationStatusGuide />
 
-Validation does not resolve the host, credentials, or an Oracle server. A
-syntactically valid resource that uses `oracle.invalid` can therefore pass
-validation. Register the Oracle connector JAR, apply the workspace, and run a
-server-side connection test for both source and target before production.
+Validation does not resolve the host, credentials, or an Oracle server. To verify the connection against the database, register the Oracle connector, apply the workspace, and run `test`:
+
+```bash
+tapstate -w tapstate-work
+```
+
+```text
+connect http://127.0.0.1:8080
+login admin
+register oracle -o json
+apply
+test orders_oracle -o json
+```
 
 Use a staging schema to verify:
 
@@ -276,7 +232,6 @@ WHERE PROFILE = (SELECT PROFILE FROM DBA_USERS WHERE USERNAME = 'TAPSTATE')
 
 ## Limitations
 
-- LogMiner and direct raw-log capture have different type, architecture, and operational constraints. This guide documents the LogMiner preparation that can be applied without assuming a tapstate-only raw-log component.
 - With LogMiner, table and column identifiers longer than 30 characters can be affected by Oracle LogMiner limits in some versions and configurations.
 - `INTERVAL` and `XMLTYPE` are not supported by the LogMiner baseline. The direct raw-log baseline does not support `TIMESTAMP WITH LOCAL TIME ZONE`.
 - Oracle empty strings become `NULL`. A source `NOT NULL` string column can therefore fail when written to Oracle if the source contains empty strings.
@@ -292,6 +247,43 @@ WHERE PROFILE = (SELECT PROFILE FROM DBA_USERS WHERE USERNAME = 'TAPSTATE')
 
 ## Reference
 
+### Connection settings
+
+The documented current source path uses the fields below.
+
+| Field | Required | Default | Use |
+|---|---|---|---|
+| `thinType` | Yes | `SID` | Oracle connection addressing mode: `SID` or `SERVICE_NAME`. |
+| `host` | With `SID` or `SERVICE_NAME` | — | Oracle database host address or hostname. |
+| `port` | With `SID` or `SERVICE_NAME` | `1521` | Oracle listener port. Use a numeric integer. |
+| `sid` | With `thinType: SID` | — | Oracle system identifier (SID). |
+| `database` | With `thinType: SERVICE_NAME` | — | Oracle service name. |
+| `tnsName` | No | — | TNS alias (legacy catalog field; not applicable to the supported `SID` and `SERVICE_NAME` options). |
+| `schema` | Yes | — | Target Oracle schema to discover and replicate. |
+| `user` | No | — | Database account username (also accepted as `username`). |
+| `password` | No | — | Database account password or secret reference. |
+| `logPluginName` | No | `logMiner` | Incremental CDC capture engine: `logMiner` or `oracle-log-parser`. |
+| `autoLog` | No | `true` | Set to `false` to disable automatic continuous log mining (required for Oracle 23c Free). |
+| `multiTenant` | No | — | Set to `true` when connecting to a multitenant database (CDB/PDB). |
+| `pdb` | With `multiTenant: true` | — | Pluggable database (PDB) name. |
+| `timezone` | No | Empty | Timezone offset for temporal conversions (e.g. `+00:00`, `+08:00`). |
+
+### Additional catalog fields
+
+The catalog recognizes the fields below for advanced or deployment-specific connectivity:
+
+| Field | Use |
+|---|---|
+| `rawLogServerHost` | Helper gRPC server host for the raw-log parsing path. |
+| `rawLogServerPort` | Helper gRPC server port for raw-log parsing (defaults to `8190`). |
+| `standBy` | Whether to read logs from a standby or replica node (defaults to `false`). |
+| `extParams` | Additional JDBC connection parameters appended to the connection string. |
+| `loadTableComment` | Whether to discover and load table comments (defaults to `false`). |
+| `useSSL` | Whether to enable SSL/TLS encryption (defaults to `false`). |
+| `sslCert` | PEM-encoded SSL certificate when `useSSL` is enabled. |
+| `sslKeyPassword` | Secret password protecting the SSL certificate. |
+| `socketReadTimeOut` | Socket read timeout in minutes (defaults to `0`, meaning no timeout). |
+
 ### Database-side reference
 
 This table summarizes Oracle behavior for the connector. Verify uncommon types
@@ -299,10 +291,9 @@ and deployment-specific capture paths with representative data before migration.
 
 | Signal | Database-side baseline |
 |---|---|
-| Versions | Oracle 9i, 10g, 11g, 12c, 18c, 19c+ |
+| Versions | Oracle 9i, 10g, 11g, 12c, 18c, 19c, 23c (Free) |
 | Architectures | Single instance and RAC. The LogMiner baseline reads primary nodes in Data Guard, Active Data Guard, and ASM deployments; standby-node capture requires the separately supplied raw-log contract. |
 | Source preparation | Snapshot and CDC prerequisites |
-| Target preparation | Insert, update, delete, object-creation, and DDL prerequisites |
 | DDL | Add, rename, alter, and drop columns |
 
 ### Data compatibility
@@ -314,4 +305,4 @@ and deployment-specific capture paths with representative data before migration.
 | Date and time | `DATE`, `TIMESTAMP`, `TIMESTAMP WITH TIME ZONE`, `TIMESTAMP WITH LOCAL TIME ZONE`, `INTERVAL` |
 | Other | `BLOB`, `XMLTYPE` |
 
-Oracle targets do not support `TIMESTAMP WITH LOCAL TIME ZONE` or `INTERVAL` in the documented connector baseline. Method-specific source exclusions are listed in [Limitations](#limitations).
+Method-specific source exclusions are listed in [Limitations](#limitations).

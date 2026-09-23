@@ -154,6 +154,30 @@ a target-side key, or `tables[].pk` does not satisfy this runtime check. Use
 `append` only when the delivery is insert-only and source updates and deletes do
 not need keyed handling.
 
+### Dotted field names in document stores
+
+`schema.column-name-reads-as-a-path` is an apply-time advisory warning. It
+indicates that a source table column contains a dot (such as `price.usd`) and is
+being mapped to a document store like MongoDB.
+
+Document stores write literal dotted keys, but query paths interpret dots as
+navigation into nested documents, causing direct field queries to return empty
+results and preventing index creation. To resolve this, rename the column in the
+source database or insert a `map` transform step to alias the dot to an
+underscore before writing to the destination.
+
+### Nest and Join transform diagnostics
+
+| Diagnostic | What it means | What to do |
+|---|---|---|
+| `nest.reference-tracking-requires-before-image` | An update on a stream behind a pointed-at embed carried no before image, preventing the engine from unlinking the row's prior reference. | Configure the stream's source to send before images (such as PostgreSQL `REPLICA IDENTITY FULL`). Without before images, unlinked rows cannot be reclaimed. |
+| `nest.key-change-tracking-requires-before-image` | An update on a stream tracking key changes carried an earlier row image missing key columns. | Configure the source to send whole row images rather than minimal ones (such as MySQL `binlog_row_image=FULL` or PostgreSQL `REPLICA IDENTITY FULL`), or turn key change tracking off for that stream. |
+| `actuation.join-output-key-not-published` | A pipeline `join` step writes to an `upsert` sync target, but its SELECT list does not directly project all primary-key columns of the driving fact table. | Project each driving fact table primary-key column directly in the SELECT list (aliases such as `o.id AS order_id` are permitted). |
+| `actuation.join-source-not-declared` | A `join` SQL query references a table alias that was not declared in the step's `from` mapping. | Align the SQL table alias with one declared in the step's `from` map. |
+| `actuation.join-source-key-missing` | The driving fact table in a `join` step has no discovered primary key. | Define a primary key on the source table, re-run schema discovery, and restart the pipeline. |
+| `dsl.join-sql-unsupported` | The join SQL statement uses unsupported clauses (such as `WHERE`, `GROUP BY`, `HAVING`, subqueries, or non-equality conditions). | Rewrite the SQL within the supported subset: one SELECT combining tables via equality associations directly between driving fact and dimension sources. |
+| `engine.join-dimension-row-displaced` | (WARNING) A second dimension row arrived under an existing join key, displacing the earlier match. | Ensure dimension join keys are unique in the source data, or narrow the source selection. Until resolved, the target will contain fewer rows than described by a relational query. |
+
 ## Troubleshoot the Quickstart
 
 The [Quickstart](/docs/overview/quickstart) assembles five MySQL orders
@@ -247,14 +271,25 @@ or seed a one-shot command with `-c` and `-u`. For automation, pass the password
 through `TAPSTATE_PASSWORD` instead of `-p` so it is not exposed in shell history
 or the process list.
 
-### Connector registration is refused
+### Connector registration is refused or download fails
 
-`connector.not-official` means the server refused the artifact before
-registration. In the current preview, the released registrar accepts the published MySQL,
-PostgreSQL, and MongoDB preview connector artifacts. A catalog entry or a connector
-JAR does not make another connector runnable. Confirm the artifact ID and use
-`connectors -o json` after a successful registration; see [Register and test
-connectors](/docs/guides/register-connectors) for the complete boundary.
+- `connector.not-official` means the server refused the artifact before
+  registration. The released preview registrar accepts official certified
+  connectors (MySQL, PostgreSQL, MongoDB, Oracle, and SQL Server). A catalog
+  entry or an uncertified connector JAR does not expand this boundary.
+- `cli.connector-download-failed` means `register <connector-id>` could not fetch
+  the artifact from the GitHub preview release or the mirror configured in
+  `TAPSTATE_CONNECTORS_URL`. Verify network connectivity, HTTPS proxy settings,
+  or set `TAPSTATE_CONNECTORS_URL` to an internal mirror.
+
+### Unsupported target connector
+
+`dsl.unsupported-target-connector` means a pipeline's `serve.sync` block references
+a connection whose connector kind is not certified for writes. In the current
+preview, only `mongodb` (and its managed cloud variants `mongodb-atlas`,
+`aliyun-db-mongodb`, `tencent-db-mongodb`) can serve as sync targets. Other
+certified connectors (MySQL, PostgreSQL, Oracle, SQL Server) are certified
+strictly as sources. Point the `sync` block to a MongoDB connection.
 
 ## Check external-system preparation
 
@@ -300,6 +335,25 @@ For CDC that stops or falls behind:
 - inspect long transactions and source-side cleanup jobs;
 - test insert, update, delete, stop, and resume in staging.
 
+### Lifecycle, position, and schema sync diagnostics
+
+| Diagnostic | What it means | What to do |
+|---|---|---|
+| `lifecycle.purge-state-not-stated` | A REST `POST ...:stop` request omitted the mandatory `purgeState` boolean body. | Supply `{"purgeState": false}` to preserve checkpoint offsets, or `{"purgeState": true}` to clear this pipeline's checkpoint position and operator state. |
+| `actuation.schema-sync-while-running` | `derived-schema --accept` was called while the pipeline is running or converging. | If upstream schemas changed, run `tapstate discover-schema <source-id>` first. Then stop the pipeline, wait until `status` confirms `STOPPED`, and accept the derived schema. |
+| `position.write-back-while-live` | Attempted to update checkpoint positions while the pipeline or another pipeline sharing its mining chain is running. | Stop all pipelines reading from the same source connection before writing back positions. |
+| `position.chain-not-read` | The position document specifies a chain not read by the target pipeline. | Read the pipeline's current position document first, edit only its existing chains, and re-apply. |
+| `position.field-not-editable` | A non-editable position attribute outside `resumeFrom.token` was altered. | Re-export the position payload and edit only `resumeFrom.token`. |
+
+### Control plane and REST API diagnostics
+
+| Diagnostic | HTTP status | What it means | What to do |
+|---|---|---|---|
+| `pipeline.not-found` | 404 Not Found | The requested pipeline ID does not exist on the server. | Confirm the pipeline ID with `GET /api/pipelines` or REPL `list pipelines`. |
+| `pipeline.already-exists` | 409 Conflict | A pipeline with the requested ID is already registered. | Use a unique pipeline ID or update the existing pipeline with PUT. |
+| `pipeline.precondition-required` | 428 Precondition Required | A pipeline update request (`PUT /api/pipelines/{id}`) omitted the required `If-Match` header. | Perform a GET request to read the current resource and its `ETag`, then pass that value in the `If-Match` header. |
+| `pipeline.version-conflict` | 412 Precondition Failed | The provided `If-Match` ETag does not match the pipeline's current version (concurrent edit conflict). | Re-fetch the pipeline resource to obtain the latest ETag and retry the update. |
+
 ## Check target correctness
 
 - Confirm that updates and deletes have a stable key.
@@ -307,6 +361,15 @@ For CDC that stops or falls behind:
 - Review automatic table creation and schema-change policy.
 - Check target constraints, column types, partitioning, and conflict handling.
 - Design downstream processing to tolerate duplicate delivery unless your deployment documents a stronger delivery guarantee.
+
+### Storage and connector state diagnostics
+
+| Diagnostic | What it means | What to do |
+|---|---|---|
+| `io.document-too-large` | A pipeline model or schema history entry exceeded MongoDB's 16MB document size limit. | The state store is healthy; retrying will not resolve the issue. Reduce the volume of schema history or wide table models tracked under the affected ID. |
+| `io.schema-write-contention` | Schema discovery failed to publish because its writer lease was reclaimed or concurrent discovery altered the record. | Wait for active discovery tasks to complete, then retry `discover-schema`. |
+| `connector.state-unreadable` | Connector checkpoint state stored in the state engine could not be deserialized (e.g., following a version downgrade). | If downgrading, run the release build that wrote the state. Otherwise, stop the pipeline with state purged (`tapstate stop <id>`) to start the connector fresh from the source origin. |
+| `connector.state-value-unsupported` | A connector attempted to persist an unmappable state data type in the storage layer. | Report the issue against the connector build; the connector's internal state cannot be persisted by the engine. |
 
 ## Interpret observations carefully
 

@@ -1,6 +1,6 @@
 ---
 title: SQL Server
-description: Connect SQL Server to tapstate for an initial full load, Change Data Capture (CDC), or target writes.
+description: Connect SQL Server as a source to tapstate for full load (Snapshot) and Change Data Capture (CDC).
 sidebar:
   order: 5
 ai:
@@ -8,9 +8,9 @@ ai:
   id: sqlserver
   category: databases
   maturity: ga
-  useAs: [source, target]
+  useAs: [source]
   modes: [snapshot, cdc]
-  aliases: [sql server snapshot, sql server cdc, mssql cdc, sql server source, sql server target]
+  aliases: [sql server snapshot, sql server cdc, mssql cdc, sql server source]
 ---
 
 import { ConnectorProfile, ValidationStatusGuide } from '@/components/mdx';
@@ -20,18 +20,29 @@ import { SourceModeTab, SourceModeTabs } from '@/components/source-mode-tabs';
   category="Databases"
   maturity="GA"
   maturityLabel="Generally available"
-  worksAs="Source, Target"
-  capabilities="Snapshot, CDC, DDL capture, Data write, Target DDL apply"
+  worksAs="Source"
+  capabilities="Snapshot, CDC, DDL capture"
   compatibility="SQL Server 2008–2022"
 />
 
-Connect SQL Server as a source for an initial full load and CDC, or as a target
-for pipeline writes. Complete the database preparation that matches the role
-and read mode you plan to use.
+Connect SQL Server as a source for an initial full load and CDC into
+operational state or analytics targets. Complete the database preparation that matches the
+read mode you plan to use.
 
 ## Before you begin
 
-### Prepare a source database
+### Connector availability and licensing
+
+The SQL Server connector artifact bundles the Microsoft JDBC Driver under the MIT License; commercial connector use remains subject to the applicable agreement. It is distributed as an official preview artifact separate from the base server image. Before applying SQL Server connections on a new or upgraded server, register the connector:
+
+```text
+connectors
+register sqlserver
+```
+
+In production and air-gapped environments, you can also mount the connector JAR into `TAPSTATE_CONNECTORS_SEED_DIR` for automatic boot-time registration. See [When registration is required](/docs/guides/register-connectors#when-registration-is-required).
+
+### Source
 
 Choose the outcome you need. Each tab is a complete preparation path; you do not need to combine steps from both tabs.
 
@@ -152,45 +163,9 @@ SQL Server CDC polling cost grows with the number of capture instances. Split ve
 </SourceModeTab>
 </SourceModeTabs>
 
-### Prepare a target database
-
-**1. Create a dedicated writer**
-
-Create a login and map it to a user in the target database:
-
-```sql
-CREATE LOGIN tapstate
-  WITH PASSWORD = 'replace-with-a-secret',
-       DEFAULT_DATABASE = database_name;
-GO
-
-USE database_name;
-GO
-CREATE USER tapstate FOR LOGIN tapstate WITH DEFAULT_SCHEMA = dbo;
-GRANT CONNECT TO tapstate;
-GO
-```
-
-**2. Grant the approved write operations**
-
-```sql
-USE database_name;
-GO
-GRANT CREATE TABLE TO tapstate;
-GRANT SELECT, INSERT, UPDATE, DELETE, ALTER
-  ON SCHEMA::dbo TO tapstate;
-GO
-```
-
-Remove `CREATE TABLE` or `ALTER` when tapstate must write only to pre-created tables. Grant access to other schemas explicitly.
-
 ## Create a connection
 
-Tapstate stores each SQL Server connection as a `.tap.yml` file in the
-workspace. Create a source connection when tapstate reads SQL Server; create a
-target connection when a pipeline writes to SQL Server.
-
-### Source connection
+Tapstate stores each SQL Server connection as a `.tap.yml` file in the workspace.
 
 Create `tapstate-work/source/orders_sqlserver.tap.yml`. The connection's `mode`
 controls its read capability. For a full-load-only source, use `mode: snapshot`
@@ -203,9 +178,10 @@ id: orders_sqlserver
 connector: sqlserver
 config:
   host: sqlserver.internal
-  port: "1433"
+  port: 1433
   database: orders
-  username: ${SQLSERVER_READER_USER}
+  schema: dbo
+  user: ${SQLSERVER_READER_USER}
   password: ${SQLSERVER_READER_PASSWORD}
 mode: cdc
 tables:
@@ -216,43 +192,23 @@ tables:
 For a CDC-capable source, use `mode: cdc` after enabling database and table CDC
 and confirming that the cleanup window covers the recovery objective.
 
-### Target connection
+Connect SQL Server source to an operational target such as MongoDB:
 
-A SQL Server target is represented by the same `kind: source` connection
-resource, but it has no reader `mode` or `tables`.
-
-```yaml title="tapstate-work/source/analytics_sqlserver.tap.yml"
-version: tapstate/v1
-kind: source
-id: analytics_sqlserver
-connector: sqlserver
-config:
-  host: analytics-sqlserver.internal
-  port: "1433"
-  database: analytics
-  username: ${SQLSERVER_WRITER_USER}
-  password: ${SQLSERVER_WRITER_PASSWORD}
-```
-
-Create the pipeline after both connections exist:
-
-```yaml title="tapstate-work/pipeline/orders_to_analytics.tap.yml"
+```yaml title="tapstate-work/pipeline/orders_to_operational_state.tap.yml"
 version: tapstate/v1
 kind: pipeline
-id: orders_to_analytics
+id: orders_to_operational_state
 source: orders_sqlserver
 serve:
   from: /.*/
   sync:
-    - id: write_to_analytics
-      source: analytics_sqlserver
+    - id: write_operational_state
+      source: operational_state
       write_mode: upsert
       ddl: fail
 ```
 
-`upsert` writes new rows and updates existing rows by key; `append` only
-inserts. Change `ddl` to `apply` only after a staging pipeline proves the
-source DDL event and target schema behavior required by your workload.
+SQL Server is certified as a source in the current product path. Writing to SQL Server as a pipeline sync target is not supported.
 
 ## Validate the configuration
 
@@ -262,17 +218,26 @@ tapstate validate --workdir tapstate-work
 
 <ValidationStatusGuide />
 
-Validation does not resolve the host, credentials, or a SQL Server instance. A
-syntactically valid resource that uses `sqlserver.invalid` can therefore pass
-validation. Register the SQL Server connector JAR, apply the workspace, and
-run a server-side connection test for both source and target before production.
+Validation does not resolve the host, credentials, or a SQL Server instance. To verify the connection against the database, register the SQL Server connector, apply the workspace, and run `test`:
+
+```bash
+tapstate -w tapstate-work
+```
+
+```text
+connect http://127.0.0.1:8080
+login admin
+register sqlserver -o json
+apply
+test orders_sqlserver -o json
+```
 
 Then verify in a staging table that:
 
 1. the account can discover and snapshot the table;
 2. the capture instance produces insert, update, and delete rows;
 3. the cleanup window exceeds the tested recovery time;
-4. the target account can perform the intended DML and only the intended DDL.
+4. data types match downstream consumer expectations.
 
 ## Limitations
 
@@ -282,7 +247,6 @@ Then verify in a staging table that:
 - DDL and DML close together can create a gap because some implicitly committed DDL is not represented in `cdc.ddl_history`.
 - SQL Server CDC processes up to 64 KB for an inserted or updated large field by default. Capture only the required columns when large fields are involved, and verify the effective limit with representative values in staging.
 - A task that polls hundreds of capture tables can accumulate latency and load. Split very large table sets and measure the polling interval in staging.
-- `timestamp`/`rowversion` is not supported when SQL Server is the target.
 - SQL Server 2005 does not provide native CDC and is not supported for CDC.
 - Configure forced encryption on SQL Server when required, then use the connection settings supplied by your tapstate deployment.
 
@@ -314,6 +278,32 @@ Recreating a capture instance changes the available change-table history. Verify
 
 ## Reference
 
+### Connection settings
+
+The documented current source path uses the fields below.
+
+| Field | Required | Default | Use |
+|---|---|---|---|
+| `host` | Yes | — | SQL Server instance host address or hostname. |
+| `port` | Yes | `1433` | SQL Server service port. Use a numeric integer. |
+| `database` | Yes | — | SQL Server database name. |
+| `schema` | Yes | — | Target schema to discover and replicate (e.g. `dbo`). |
+| `user` | No | — | Database account login (also accepted as `username`). |
+| `password` | No | — | Database account password or secret reference. |
+| `cdcSolution` | No | `CT` | CDC capture method: `CT` (native CDC change tables) or `LogParser`. |
+| `timezone` | No | Empty | Timezone offset for temporal conversions (e.g. `+00:00`, `+08:00`). |
+
+### Additional catalog fields
+
+The catalog recognizes the fields below for encryption and advanced connection properties:
+
+| Field | Use |
+|---|---|
+| `useSSL` | Whether to enable SSL/TLS transport encryption (defaults to `false`). |
+| `sslKeyPassword` | Password protecting the client SSL/TLS key. |
+| `hostNameInCertificate` | Server hostname override used to validate the SSL/TLS certificate. |
+| `extParams` | Additional JDBC connection parameters accepted by the Microsoft driver. |
+
 ### Database-side reference
 
 This table summarizes SQL Server data behavior for the connector. Test uncommon
@@ -324,7 +314,6 @@ types with representative data before migration.
 | Versions | SQL Server 2008, 2008 R2, 2012, 2014, 2016, 2017, 2019, 2022 |
 | Architecture | Single node |
 | Source preparation | Snapshot and CDC prerequisites |
-| Target preparation | Insert, update, delete, and optional table-creation prerequisites |
 | DDL | Add, rename, alter, and drop columns, subject to CDC limitations |
 
 ### Data compatibility

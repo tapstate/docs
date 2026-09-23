@@ -33,7 +33,7 @@ States include:
 - `COMPLETED`: a bounded input was exhausted;
 - `FAILED`: the running job stopped unexpectedly.
 
-Status is observed state, not merely the last command issued. It is eventually consistent and can lag a lifecycle write briefly.
+`status` is an observed state projection rather than a transient command confirmation. The observation includes `observedAt`, which records the exact instant the projection was captured. If a pipeline shows `RUNNING` but `observedAt` stops advancing or confirmed target positions remain unchanged while source activity continues, check logs and resource health for backpressure or stalls.
 
 When a job fails, the CLI status output includes `failureCode` and
 `failureMessage` with the `FAILED` state. `failureCode` is the stable machine
@@ -79,6 +79,10 @@ logs orders_to_operational_state --follow
 ```
 
 Logs are a bounded tail from the node serving the request. They are not a durable audit history or an aggregated multi-node log. An empty log result is valid when the pipeline has not logged on that node.
+
+### Connector log forwarding
+
+Connector and PDK runtime logs are forwarded into the pipeline's log stream under the connector identifier (`io.tapstate.connector.<connector-id>`). Connector warnings and errors are preserved in the stream, while verbose debug chatter is filtered to protect the bounded tail. This enables operators to diagnose driver disconnects, authorization errors, retry loops, and schema anomalies directly via `logs` without host-level log access.
 
 `logs --follow` opens an authenticated WebSocket and sends newly observed lines. Under a burst, a bounded tail can re-send a line when it re-tails after eviction; consumers should tolerate duplicates. A normal connection drop may be re-attached, but a server close carrying a coded refusal terminates the follow operation and reports the code instead of reconnecting indefinitely.
 

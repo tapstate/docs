@@ -196,6 +196,11 @@ Connection test and discovery execute synchronously and can take longer than ord
 | `GET` | `/api/sources/{id}` | Read a secret-redacted source and its `ETag`. |
 | `PUT` | `/api/sources/{id}` | Replace a source using `If-Match`. |
 | `DELETE` | `/api/sources/{id}` | Delete a source using `If-Match`. |
+| `GET` | `/api/sources/{id}/schema` | Read the discovered schema scoped specifically to the source's selected tables. |
+
+`GET /api/sources/{id}/schema` filters the discovered schema to only the tables declared in the source's `tables` configuration. To inspect the full catalog of all discovered tables across the database, use `GET /api/connections/{id}/schema`.
+
+When running `POST /api/connections:test` or `POST /api/connections:discover-schema` for an existing stored source, omitting secret fields (such as `password`) automatically reuses the credentials saved on the server.
 
 `POST /api/sources:draft` is an authoring check, not a create operation. It
 returns a redacted Source view and canonical YAML only when the live connector
@@ -334,14 +339,26 @@ effect immediately.
 
 ## Pipeline lifecycle endpoints
 
-| Method | Path |
-|---|---|
-| `POST` | `/api/pipelines/{id}:start` |
-| `POST` | `/api/pipelines/{id}:stop` |
-| `POST` | `/api/pipelines/{id}:pause` |
-| `POST` | `/api/pipelines/{id}:resume` |
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/pipelines/{id}:start` | Request a transition to `RUNNING`. |
+| `POST` | `/api/pipelines/{id}:stop` | Request a transition to `STOPPED`; requires a `purgeState` request body. |
+| `POST` | `/api/pipelines/{id}:pause` | Request a transition to `PAUSED`. |
+| `POST` | `/api/pipelines/{id}:resume` | Request a transition to `RUNNING` from `PAUSED`. |
 
-Each response is desired state:
+Stopping a pipeline requires a JSON body stating whether to clear internal checkpoint offsets and operator state:
+
+```json
+{
+  "purgeState": false
+}
+```
+
+- Set `purgeState` to `false` to keep checkpoints and operator state intact so a future start resumes where it left off.
+- Set `purgeState` to `true` to purge this pipeline's checkpoint position and operator state so the next start has no position to carry on from (on a dedicated source connection, this restarts from the source beginning; on a shared mining chain where other pipelines are running, shared chain state and initial-load records are preserved while this pipeline starts fresh).
+- Omitting the body or `purgeState` returns HTTP `400` with code `lifecycle.purge-state-not-stated`.
+
+Each lifecycle response returns desired state:
 
 ```json
 {
@@ -352,6 +369,95 @@ Each response is desired state:
 ```
 
 The response proves that the intent was accepted. Read observed status and destination data before reporting execution success.
+
+## Pipeline layout endpoints
+
+Persist and retrieve visual node coordinates and canvas viewport state for pipeline editors.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/pipelines/{id}/layout` | Read node canvas positions and viewport zoom for one pipeline. |
+| `PUT` | `/api/pipelines/{id}/layout` | Save node positions and viewport. |
+
+Example layout document:
+
+```json
+{
+  "nodes": {
+    "orders_source": { "x": 120.0, "y": 80.0 },
+    "shape_order": { "x": 360.0, "y": 80.0 },
+    "operational_state": { "x": 600.0, "y": 80.0 }
+  },
+  "viewport": {
+    "x": 0.0,
+    "y": 0.0,
+    "zoom": 1.0
+  }
+}
+```
+
+- **Path identity**: The request body omits the pipeline ID; the URL path owns resource identity.
+- **Diagnostics**: Returns `200 OK` with the saved layout view. If `{id}` does not exist, returns HTTP `404` (`pipeline.not-found`).
+
+## Pipeline definition endpoints
+
+Create or replace complete pipeline resource definitions:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/pipelines` | Create a pipeline resource. Returns `201 Created` with `ETag`. |
+| `PUT` | `/api/pipelines/{id}` | Replace a pipeline definition. Requires optimistic concurrency control with `If-Match`. |
+
+- **Concurrency control**: `PUT /api/pipelines/{id}` enforces optimistic concurrency control using the `If-Match` header. Pass the quoted SHA-256 ETag from `GET` (e.g. `If-Match: "<hash>"`). Omitting or misformatting `If-Match` returns HTTP `428` (`pipeline.precondition-required`). If the ETag does not match the server's current stored hash, the request returns HTTP `412` (`pipeline.version-conflict`).
+- **Duplicate ID rejection**: `POST /api/pipelines` returns HTTP `409` (`pipeline.already-exists`) if `{id}` is already registered.
+
+## Pipeline position endpoints
+
+Inspect and manage checkpoint resume positions across mining chains:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/pipelines/{id}/position` | Read checkpoint resume tokens for each mining chain feeding the pipeline. |
+| `PUT` | `/api/pipelines/{id}/position` | Update checkpoint resume positions for a stopped pipeline. |
+
+Position document shape:
+
+```json
+{
+  "pipelineId": "orders_to_operational_state",
+  "chains": [
+    {
+      "chainId": "chain_mysql_appdb",
+      "sourceId": "orders_source",
+      "tables": ["orders"],
+      "resumeFrom": {
+        "token": "mysql-bin.000004:154"
+      },
+      "recordedAt": "2026-09-17T03:00:00Z",
+      "targetAcked": null,
+      "sharedWith": []
+    }
+  ]
+}
+```
+
+- **Per-chain granularity**: Positions belong to physical mining chains rather than individual tables. `sharedWith` lists any other pipelines reading the same chain.
+- **Modifications require stopped state**: `PUT /api/pipelines/{id}/position` modifies `resumeFrom.token`. The pipeline and all pipelines sharing its mining chains must be stopped; otherwise, the write is refused with HTTP `409` (`position.write-back-while-live`).
+
+## Schema evolution and derived schema endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/pipelines/{id}/derived-schema` | Compare recorded, derived, and target column models across pipeline steps. |
+| `POST` | `/api/pipelines/{id}:accept-derived-schema` | Synchronize the pipeline to current source schemas and lock the next start to the derived output. |
+
+`GET /api/pipelines/{id}/derived-schema` returns a list of step reports comparing three column models:
+
+- `recorded`: The schema previously recorded for that step (omitted for uninferrable steps such as custom scripts).
+- `derived`: The current schema worked out from stored discovery models through transforms.
+- `target`: The column layout declared on the destination table.
+
+`POST /api/pipelines/{id}:accept-derived-schema` copies stored source discovery models into the pipeline definition and adopts the derived columns as the baseline for future runs (run source schema discovery first when upstream database structures change). Attempting to accept a derived schema while the pipeline is active is rejected with HTTP `500` (`actuation.schema-sync-while-running`).
 
 ## Observation endpoints
 
@@ -435,6 +541,18 @@ the coded error is used by artifact mutation/precondition paths.
 | `artifact.in-use` | Another resource still refers to the artifact (`409`). |
 | `artifact.pipeline-not-stopped` | The artifact's pipeline is not stopped, so removal is refused (`409`). |
 | `artifact.reclaim-incomplete` | The deletion succeeded, but dependent cleanup did not finish. Do not retry the deletion. Record the `reason` and `residue` parameters and contact the server operator; a retry returns `artifact.not-found`. |
+
+### Lifecycle and execution errors
+
+| Code | Meaning |
+|---|---|
+| `lifecycle.purge-state-not-stated` | A stop request omitted the mandatory `purgeState` boolean field (`400`). |
+| `lifecycle.illegal-transition` | The requested transition is forbidden from the pipeline's current lifecycle state (`409`). |
+| `lifecycle.incompatible-revision` | The pipeline's target revision is older than its latest applied revision (`409`). |
+| `position.write-back-while-live` | Attempted to update checkpoint positions while a pipeline reading the chain is active (`409`). |
+| `position.chain-not-read` | The position document specifies a chain not consumed by this pipeline (`400`). |
+| `position.field-not-editable` | An immutable position attribute other than `resumeFrom.token` (such as `resumeFrom.epoch` or `resumeFrom.seq`) was altered (`400`). |
+| `actuation.schema-sync-while-running` | Attempted to accept a derived schema while the pipeline is active (`500`). |
 
 Unexpected server errors can return HTTP `500` without the coded envelope.
 Preserve the status, response body, method, path, and tapstate version when

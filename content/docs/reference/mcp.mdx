@@ -233,6 +233,7 @@ By default, the gateway exposes read-only tools:
 | `artifact_validate` | Validate a complete `tapstate/v1` workspace without writing it. |
 | `artifact_get` | Read one applied resource and its content hash. |
 | `source_draft` | Render canonical YAML for a source from its live connector contract. |
+| `source_list` | List structured sources declared on the server; accepts optional `offset` and `limit`. |
 | `connection_test_result` | Read the latest persisted connection-test result. |
 | `connection_schema` | Read the latest discovered source schema. |
 | `connector_list` | List connectors visible to the online server. |
@@ -240,6 +241,7 @@ By default, the gateway exposes read-only tools:
 | `data_browser_collections` | List the collections held by a declared source's database. |
 | `data_browser_find` | Read a bounded preview of rows from one collection. |
 | `data_browser_stats` | Read the collection metadata reported by its connector. |
+| `pipeline_list` | List structured pipelines declared on the server; accepts optional `offset` and `limit`. |
 | `pipeline_status` | Read a pipeline's current lifecycle status. |
 | `pipeline_metrics` | Read the latest bounded pipeline metrics. |
 | `pipeline_snapshot` | Read the latest per-table snapshot progress. |

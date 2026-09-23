@@ -27,6 +27,17 @@ import { SourceModeTab, SourceModeTabs } from '@/components/source-mode-tabs';
 
 ## Before you begin
 
+### Connector availability
+
+The MySQL connector is registered automatically by the Quickstart script. On standalone or fresh server container deployments, the connector catalog starts empty. Confirm that MySQL is registered before authoring connections:
+
+```text
+connectors
+register mysql
+```
+
+See [When registration is required](/docs/guides/register-connectors#when-registration-is-required).
+
 ### Source
 
 Choose the outcome you need. Each tab is a complete preparation path; you do not need to combine steps from both tabs. In tapstate, a connection's `mode` describes what it can read: `snapshot` is a bounded full load and `cdc` is a change-capable source.
@@ -143,7 +154,7 @@ connector: mysql
 config:
   deploymentMode: standalone
   host: db.internal
-  port: "3306"
+  port: 3306
   database: orders
   username: ${MYSQL_USER}
   password: ${MYSQL_PASSWORD}
@@ -172,9 +183,9 @@ config:
   deploymentMode: master-slave
   masterSlaveAddress:
     - host: mysql-primary.internal
-      port: "3306"
+      port: 3306
     - host: mysql-replica-1.internal
-      port: "3306"
+      port: 3306
   database: orders
   username: ${MYSQL_USER}
   password: ${MYSQL_PASSWORD}
