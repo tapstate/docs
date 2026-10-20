@@ -176,15 +176,17 @@ The in-process log reader requires:
 
 The current Db2 preview JAR bundles the IBM runtime client and initializes it
 on first use. The Cloud image supplies these dependencies and runs as root.
-The standard self-hosted image runs as UID 10001, so its operator must prepare
-the native runtime and process environment before using this mode:
+The standard self-hosted image runs as UID 10001, so its operator must start the
+container as root (`--user 0`) for the first native connection and supply the
+preloaded library:
 
 ```bash
-# Example: supply the preloaded library in a self-hosted container environment
+# Example: run as root for first-connection initialization and preload libstdc++
 docker run -d --name tapstate \
+  --user 0 \
   -e LD_PRELOAD=libstdc++.so.6 \
   -p 8080:8080 \
-  tapstate/tapstate:v0.7.0
+  ghcr.io/tapstate/tapstate:0.7.0
 ```
 
 `useNativeMiner` defaults to `false`; enable it explicitly for native CDC.
