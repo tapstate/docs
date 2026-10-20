@@ -36,3 +36,6 @@ yarn-error.log*
 /release-*-install-playground-validation*.html
 /release-*-pr-doc-map*.html
 /release-*-review*.html
+
+# internal planning and drafts
+/planning/

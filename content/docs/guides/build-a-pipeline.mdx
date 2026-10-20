@@ -1,0 +1,129 @@
+---
+title: Build a pipeline
+description: Connect source data, build and preview a draft, then start a pipeline in the web application
+ai:
+  kind: guide
+  id: build-a-pipeline
+  maturity: preview
+  modes: [snapshot, cdc]
+  aliases: [tapstate web pipeline, pipeline builder, pipeline draft, data preview]
+---
+
+Use the web application to turn source tables into a maintained result. Start
+with a root table, add related records or transforms, and choose where to write
+the result.
+
+For a prepared example, try the [Quickstart](/docs/overview/quickstart) first.
+For file-based authoring and automation, use [Apply and run a pipeline](/docs/guides/apply-and-run).
+
+Screenshots show an example using sample orders and shipments.
+
+## Before you begin
+
+- Sign in to the web application at `http://localhost:8080` (or your server URL) as `admin`. If you used the [Quickstart](/docs/overview/quickstart), find the password in `tapstate-demo/.env`.
+- Prepare your databases using the relevant [connector guides](/docs/connectors),
+  including network access, permissions, and CDC prerequisites.
+- Have an administrator [register the required connectors](/docs/guides/register-connectors).
+- Configure a writable destination, such as MongoDB, using an available target connection.
+
+Use sample or non-sensitive data while evaluating the preview release.
+
+## 1. Connect and discover your data
+
+In **Data Sources**, create a source, choose its connector, and enter its
+connection settings. Run **Test connection** and resolve any failed checks.
+Save the source, then run **Refresh schema**.
+
+Open a table and review its columns and primary key. The builder uses discovered
+fields to configure relationships and transforms. If you change the database
+schema, refresh it before editing the pipeline.
+
+Add the destination in **Data Sources** too if it is not already available.
+
+For CDC, a passing connection test does not replace the database's logging and
+permission setup. Follow the source's connector guide.
+
+![MongoDB destination connection test showing passed host, connection, version, write, read, and read-log checks](/images/guides/build-a-pipeline/v0.7-connection-test.jpg)
+
+*A successful connection test for the sample MongoDB destination.*
+
+## 2. Create a draft
+
+In **Pipelines**, create a pipeline and choose **Pipeline builder**. Give it a
+stable ID, such as `order_state`; the ID cannot be renamed later.
+
+1. Choose the root source and table. Each root row becomes one result document.
+2. Add related tables when the document needs data from other records. Select
+   row keys and matching fields, then choose whether to flatten fields or embed
+   a document or array. See [Assemble documents with nest](/docs/guides/assemble-documents-with-nest).
+3. Add filters, field mappings, or other transforms as needed. Keep the row keys
+   and relationship fields needed by later steps.
+4. Select the destination, target table or collection, and write strategy. The
+   default `upsert` strategy requires discovered primary keys on the selected
+   source tables. Use `append` only for insert-only delivery when the target
+   supports it.
+
+Select **Save** before leaving. This keeps the draft without publishing or
+starting it; an unfinished draft can be completed later.
+
+In this example, `orders` is the root table and `shipments.order_id` matches
+`orders.id`. The **Array** relationship embeds matching rows under `shipments`.
+
+![Pipeline builder with the orders root, a shipments array relationship, Save actions, and a rendered sample document](/images/guides/build-a-pipeline/v0.7-builder-preview.jpg)
+
+## 3. Check the configuration and sample result
+
+Select **Inspect Plan** to open **DSL Preview** and inspect the compiled
+configuration. Compilation checks the definition; it does not read source rows.
+
+**Result Preview** reads a bounded source sample and runs the draft's data path
+without writing to the destination. Review the output fields, relationships,
+and values before starting a full run.
+
+The preview has a 45-second deadline and uses at most 100 root rows. It can show
+Mongo Extended JSON when the selected MongoDB target's codecs are available;
+otherwise it shows logical JSON. This sample does not validate continuous CDC
+or every source record. If a preview fails, resolve the error before relying on
+the last displayed result.
+
+## 4. Publish and start
+
+Select **Save & start**. The application saves the draft, checks and compiles
+it, publishes the pipeline configuration, and requests a start. Resolve any
+diagnostic at the stage where it appears.
+
+If the pipeline is already running, the new configuration can be published,
+but the application does not stop the active run automatically. Stop it
+deliberately and choose whether to retain its progress and state. Wait for the
+stop to complete before starting the new revision. See
+[Lifecycle transitions](/docs/guides/apply-and-run#lifecycle-transitions)
+before clearing state.
+
+If another editor changed the draft or published configuration, reload and
+review those changes before retrying. Do not overwrite a conflict blindly.
+
+## 5. Check the result
+
+Open **Monitoring** and **Logs** to check the initial load and investigate
+errors. See [Observe a pipeline](/docs/guides/observe-a-pipeline) for the status
+and metrics fields.
+
+![Monitoring page showing a running sample pipeline, record counts, and target acknowledged positions](/images/guides/build-a-pipeline/v0.7-monitoring.jpg)
+
+Open the output in **Views** and select **Documents** where available, or query
+the configured target. Check a known record, including related records and
+transformed fields. For a CDC pipeline, make a small insert, update, and delete
+in a test source and confirm the expected changes at the destination.
+
+![Documents tab for the sample order_state view showing an order and its embedded shipments](/images/guides/build-a-pipeline/v0.7-view-documents.jpg)
+
+Browsing an existing result reads stored documents. **Result Preview** runs a
+sample through the draft. Use the former to check delivery and the latter to
+check an edit before running it.
+
+## Next steps
+
+- [Capture and read modes](/docs/concepts/capture-modes)
+- [Resources and pipelines](/docs/concepts/dsl)
+- [Troubleshooting](/docs/guides/troubleshooting)
+- [v0.7 release notes](/docs/releases/v0.7)

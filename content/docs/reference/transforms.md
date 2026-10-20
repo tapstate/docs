@@ -43,6 +43,10 @@ transforms:
     use: public-order-shape
 ```
 
+Set optional `execution` on the inline step or the step containing `use`,
+not on the reusable Transform definition. Transforms default to parallelism
+`1`. See [Node execution](/docs/reference/pipeline#node-execution).
+
 ## Runtime status
 
 | Type | Schema | Current preview runtime |
@@ -96,9 +100,10 @@ for the corresponding diagnostic codes.
 
 A direct column expression such as `moved: "=after.amount"` preserves the
 source decimal's precision and scale. This also applies to direct `before`
-column references. It does not extend to every computed decimal expression:
-in v0.6.0, a conditional between decimal columns can pass apply and fail at the
-first target write.
+column references and `$amount` renames. Computed decimal results, such as a
+conditional between decimal columns, have no declared precision or scale and
+are rejected during validation. Keep an exact decimal as a direct column
+reference instead of computing a new decimal value.
 
 Outer joins can supply null dimension values. Use expressions that handle null
 explicitly. An operation that cannot accept null fails with
@@ -245,10 +250,13 @@ field history is durable, including across a server restart.
 ### Durable state placement
 
 Set `state.database` on the Nest step to select its state database on the
-existing MongoDB connection. The default is the deployment's
+existing MongoDB connection in a self-hosted deployment. The default is the deployment's
 `tapstate.store.mongo.operator-state-database` (`tapstate_nest` when unset).
 See [Move Nest state](/docs/guides/move-nest-state) before changing an existing
 Nest's placement.
+
+Cloud manages the internal database names; do not override them with a
+self-hosted state placement setting.
 
 Nest can run with `snapshot_only`; this mode does not provide a CDC resume
 position and can reread the source after restart.

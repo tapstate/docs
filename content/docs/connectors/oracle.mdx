@@ -164,7 +164,11 @@ tables:
   - /CUSTOMERS_.*/
 ```
 
-For Oracle 23c (Free), specify `autoLog: false` in `config` because the automatic LogMiner requests `CONTINUOUS_MINE`, which is unsupported in Oracle 23c. In addition, ensure schema, table, and column identifiers remain within 30 characters; v0.6 refuses unsupported LogMiner identifiers before capture starts. This LogMiner check does not apply to a full-load-only read.
+For Oracle 23c (Free), set `autoLog: false` because the automatic miner requests
+`CONTINUOUS_MINE`, which Oracle 23c no longer supports. Keep schema, table, and
+column identifiers within 30 characters for this LogMiner path. A snapshot can
+succeed while CDC cannot read changes for a longer identifier; tapstate does
+not reject that configuration before capture starts.
 
 Connect Oracle source to an operational target such as MongoDB:
 
@@ -182,7 +186,9 @@ serve:
       ddl: fail
 ```
 
-Oracle is certified as a source in the current product path. Writing to Oracle as a pipeline sync target is not supported.
+This guide covers Oracle as a source. Cloud does not accept Oracle sync
+targets. Self-hosted target allowances do not certify Oracle writes; see
+[Registration and target boundaries](/docs/guides/register-connectors#current-preview-registration-boundary).
 
 ## Validate the configuration
 
@@ -232,7 +238,7 @@ WHERE PROFILE = (SELECT PROFILE FROM DBA_USERS WHERE USERNAME = 'TAPSTATE')
 
 ## Limitations
 
-- LogMiner capture refuses schema, table, and column names longer than 30 characters before starting. Review the reported identifier or use an appropriate capture mode; a successful snapshot does not prove LogMiner CDC can start.
+- Keep LogMiner identifiers within 30 characters. Longer identifiers can fail CDC even after a successful snapshot, without a pre-start refusal.
 - `INTERVAL` and `XMLTYPE` are not supported by the LogMiner baseline. The direct raw-log baseline does not support `TIMESTAMP WITH LOCAL TIME ZONE`.
 - Oracle empty strings become `NULL`. A source `NOT NULL` string column can therefore fail when written to Oracle if the source contains empty strings.
 - DDL and a large burst of DML on the same table can make dictionary reconstruction unreliable. Stage schema changes separately from heavy write windows when possible.

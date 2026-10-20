@@ -19,6 +19,37 @@ command on this page from the generated `tapstate-demo` directory.
 
 ## Understand the sample
 
+<figure data-diagram="order-state" aria-labelledby="order-state-data-flow" className="not-prose my-8 overflow-hidden rounded-xl border border-fd-border bg-fd-muted/10">
+<figcaption id="order-state-data-flow" className="border-b border-fd-border px-4 py-3 text-sm font-semibold text-fd-foreground">Two sources, one order document</figcaption>
+<div className="grid items-center gap-3 p-4 sm:grid-cols-[minmax(0,1fr)_1.5rem_minmax(0,1fr)_1.5rem_minmax(0,1fr)]">
+<div className="grid gap-2">
+<div className="rounded-lg border border-fd-border bg-fd-background p-3">
+<p className="text-sm font-semibold text-fd-foreground">MySQL</p>
+<p className="mt-1 font-mono text-sm text-fd-foreground">orders</p>
+<p className="mt-2 text-xs text-fd-muted-foreground">Root key: <code>id</code></p>
+</div>
+<div className="rounded-lg border border-fd-border bg-fd-background p-3">
+<p className="text-sm font-semibold text-fd-foreground">PostgreSQL</p>
+<p className="mt-1 font-mono text-sm text-fd-foreground">shipments</p>
+<p className="mt-2 text-xs text-fd-muted-foreground">Parent key: <code>order_id</code></p>
+</div>
+</div>
+<div aria-hidden="true" className="text-center text-2xl leading-none text-fd-muted-foreground sm:-rotate-90">↓</div>
+<div className="rounded-lg border border-fd-primary/30 bg-fd-primary/5 p-3">
+<p className="text-sm font-semibold text-fd-foreground">Assemble with <code>nest</code></p>
+<p className="mt-1 text-xs text-fd-muted-foreground">Transform: <code>assemble</code></p>
+<p className="mt-3 font-mono text-xs leading-5 text-fd-foreground">orders.id =<br />shipments.order_id</p>
+</div>
+<div aria-hidden="true" className="text-center text-2xl leading-none text-fd-muted-foreground sm:-rotate-90">↓</div>
+<div className="rounded-lg border border-fd-border bg-fd-background p-3">
+<p className="text-sm font-semibold text-fd-foreground">MongoDB</p>
+<p className="mt-1 break-words font-mono text-sm text-fd-foreground">views.order_state</p>
+<p className="mt-3 text-xs leading-5 text-fd-muted-foreground">One document per order, with related rows in a <code>shipments</code> array.</p>
+</div>
+</div>
+<p className="border-t border-fd-border px-4 py-3 text-xs leading-5 text-fd-muted-foreground">Initial snapshot, then ongoing changes from both sources.</p>
+</figure>
+
 The playground creates this workspace:
 
 ```text
@@ -44,6 +75,10 @@ inserts, updates, and deletes arrive through CDC.
 
 Open `order_pipeline` under **Pipelines** in the web application. Use
 **Monitoring** to follow activity and **Logs** to investigate errors.
+
+Open `order_state` under **Views** and select **Documents** to browse stored
+documents. Reload after each change below, or use the direct MongoDB checks
+provided.
 
 The optional experiment below changes sample rows with database tools included
 in the playground. Run its commands from `tapstate-demo`. Each change has a
@@ -152,6 +187,7 @@ or production data in this environment.
 ## Next steps
 
 - Prepare your own source with its [connector guide](/docs/connectors).
+- [Build a pipeline](/docs/guides/build-a-pipeline) in the web application.
 - For declarative authoring, [create a workspace](/docs/overview/create-workspace) with the optional CLI.
 - Learn how [nest assembles documents](/docs/guides/assemble-documents-with-nest).
 - Review [view and serve](/docs/reference/view-and-serve) to distinguish managed materialization from external delivery.

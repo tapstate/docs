@@ -8,8 +8,11 @@ ai:
   aliases: [Nest state database, state.database, migrate Nest state]
 ---
 
-A Nest can keep its durable state in a selected MongoDB database. This includes
-its operator-state records, shape record, and dead letters.
+Use this procedure for a **self-hosted deployment** whose MongoDB and server
+configuration you manage. A Nest can keep its durable state in a selected
+MongoDB database, including operator-state records, its shape record, and dead
+letters. Cloud manages internal state placement separately; its configured
+Atlas output connection is not a replacement for the internal state store.
 
 By default, Nest uses `tapstate.store.mongo.operator-state-database`, whose
 default value is `tapstate_nest`. Set `state.database` on a Nest step to override
@@ -136,7 +139,10 @@ A clean start deliberately discards the continuation. Back up first, then
 clear the pipeline's state and position while the old servers are still
 available: use `stop <pipeline-id> -y`, or REST with `{"purgeState": true}`.
 Stop all servers, restart them with the new setting, apply the updated Nest,
-and start a fresh load.
+and start only after confirming a complete reload is possible. If another
+pipeline retains the shared capture chain, clearing this pipeline alone can
+leave completed-table history on that chain. Coordinate the reset with all
+dependent pipelines before using an empty operator-state database.
 
 Do not keep an old checkpoint while selecting an empty state database: earlier
 acknowledged events would be skipped even though their Nest state is absent.

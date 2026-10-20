@@ -62,12 +62,50 @@ function groupConnectorNavigation(node: Folder, folderPath: string): Folder {
   };
 }
 
+// Keep the existing guide routes while grouping version-specific upgrades.
+function groupUpgradeNavigation(node: Folder, folderPath: string): Folder {
+  if (folderPath !== 'guides') return node;
+
+  const isUpgradePage = (child: Node): child is Item =>
+    child.type === 'page' && child.url.startsWith(`${docsRoute}/guides/upgrade-to-`);
+  const pages = node.children.filter(isUpgradePage);
+  if (pages.length === 0) return node;
+
+  const group: Folder = {
+    type: 'folder',
+    $id: 'upgrade-guides',
+    name: 'Upgrading',
+    collapsible: true,
+    defaultOpen: false,
+    children: pages.map((page) => ({
+      ...page,
+      name: typeof page.name === 'string'
+        ? page.name.replace(/^Upgrade to /, 'To ')
+        : page.name,
+    })),
+  };
+  let inserted = false;
+
+  return {
+    ...node,
+    children: node.children.flatMap<Node>((child) => {
+      if (!isUpgradePage(child)) return [child];
+      if (inserted) return [];
+      inserted = true;
+      return [group];
+    }),
+  };
+}
+
 // See https://fumadocs.dev/docs/headless/source-api for more info
 export const source = loader({
   baseUrl: docsRoute,
   source: docs.toFumadocsSource(),
   pageTree: {
-    transformers: [{ folder: groupConnectorNavigation }],
+    transformers: [
+      { folder: groupConnectorNavigation },
+      { folder: groupUpgradeNavigation },
+    ],
   },
   plugins: [],
 });
@@ -177,6 +215,20 @@ function cleanMdxForLLM(markdown: string) {
         },
       );
     })
+    .replace(/<figure\b[^>]*data-diagram="order-state"[^>]*>([\s\S]*?)<\/figure>/g, (_match, body: string) => {
+      return body
+        .replace(/<div\b[^>]*aria-hidden="true"[^>]*>[\s\S]*?<\/div>/g, '')
+        .replace(/<code>([\s\S]*?)<\/code>/g, '`$1`')
+        .replace(/<br\s*\/?>/g, ' ')
+        .replace(/<(p|figcaption)\b[^>]*>([\s\S]*?)<\/\1>/g, (_tag, _name: string, text: string) => {
+          return `${text.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()}\n`;
+        })
+        .replace(/<[^>]+>/g, '')
+        .split('\n')
+        .map((line: string) => line.trim())
+        .filter(Boolean)
+        .join('\n');
+    })
     .replace(/<div[^>]*>\n?/g, '')
     .replace(/<\/div>\n?/g, '')
     .replace(/<CardGrid>\n?/g, '')
@@ -227,8 +279,8 @@ Next, run the connection in a non-production environment and confirm credentials
 
 | Path | Components | Current behavior |
 |---|---|---|
-| Control | \`.tap.yml\` workspace → tapstate CLI → single-node server | The CLI validates locally and submits authenticated control requests to the server over HTTP. |
-| Data | MySQL + PostgreSQL → single-node server (Capture & transform) → managed MongoDB state | The Quickstart runs an initial snapshot followed by CDC and uses \`nest\` to assemble related rows from both sources. A separate \`serve.sync\` can deliver pipeline output to an external target. The runtime also wires \`filter\`, \`map\`, \`js\`, and \`union\`. |`)
+| Control | Web draft or \`.tap.yml\` workspace → server control plane | Use the web application to save, preview, publish, and start a pipeline. CLI, REST, and MCP provide programmatic operations where exposed. |
+| Data | MySQL + PostgreSQL → tapstate (Capture & transform) → managed MongoDB state | The Quickstart runs an initial snapshot followed by CDC and uses \`nest\` to assemble related rows. It uses one server member; optional clustering and persistent state are described in the deployment guides. |`)
     .replace(/<TapStateArchitecture\s*\/>/g, `### Target architecture diagram
 
 This diagram describes design direction, not the current preview implementation boundary.
@@ -296,7 +348,7 @@ const llmProductOverview = [
   '>',
   '> Its product model captures changes, transforms records in flight, and delivers current operational state to applications, APIs, automation, and AI agents through one governed Capture–Transform–Serve data path. It is intended for teams that would otherwise assemble separate CDC, broker, stream-processing, and serving products for the same path. This describes the product model; it does not mean every surface is available in the current preview.',
   '>',
-  '> The current preview is a prerelease, single-node, in-memory runtime. The documented end-to-end path captures MySQL orders and PostgreSQL shipments, assembles them with `nest`, and maintains the result in MongoDB. Use the linked page-level documentation for current maturity, roles, modes, limitations, and setup requirements.',
+  '> Start with the Quickstart and Build a pipeline guides. Use the linked canonical pages and release notes for current deployment modes, connector roles, recovery behavior, and limitations.',
 ].join('\n');
 
 function getAIPageMetadata(page: (typeof source)['$inferPage']) {

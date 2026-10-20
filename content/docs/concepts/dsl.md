@@ -7,11 +7,28 @@ ai:
   aliases: [tapstate dsl, tapstate resources, tapstate pipeline, tapstate yaml]
 ---
 
-Tapstate uses declarative `*.tap.yml` files with `version: tapstate/v1`.
+Tapstate describes connections, transforms, and pipeline outputs as resources.
+You can [build a pipeline in the web application](/docs/guides/build-a-pipeline)
+or author declarative `*.tap.yml` files with `version: tapstate/v1`.
 
-If this is your first runnable pipeline, begin with the
-[offline workspace walkthrough](/docs/overview/create-workspace). For exact field shapes, use the
-[resource grammar](/docs/reference/dsl-grammar).
+For file-based authoring, start with the [workspace walkthrough](/docs/overview/create-workspace).
+For exact field shapes, use the [resource grammar](/docs/reference/dsl-grammar).
+
+## Draft, published configuration, and run
+
+A **draft** is saved authoring work. It can be incomplete and does not run.
+Compiling a draft checks whether it can produce a valid pipeline definition.
+Data Preview goes further: it reads a bounded source sample and shows the
+transformed result without writing to the destination.
+
+**Publishing** a draft stores its runnable configuration as an artifact.
+Applying resource files through the CLI stores artifacts directly. Neither
+action starts a pipeline or automatically replaces an active run.
+
+A **run** executes a published pipeline revision. Starting uses the latest
+applied revision. If you publish changes while a pipeline is running, stop and
+start deliberately to use the new revision. Choose whether to retain or clear
+state before stopping; see [Apply and run a pipeline](/docs/guides/apply-and-run).
 
 ## Five resource kinds
 

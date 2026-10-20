@@ -118,6 +118,13 @@ SRS settings. They are valid only for a `cdc` source. Accepted fields are
 `enabled`, `key`, `queryable`, `retention`, and `schema_evolution` (`ignore` or
 `track`).
 
+### `execution`
+
+Controls the source node's batch and requested cluster-wide parallelism. The
+current source reader runs with parallelism `1`; requesting more does not
+partition the read. See [Node execution](/docs/reference/pipeline#node-execution)
+for limits, defaults, and diagnostics.
+
 See the [connector directory](/docs/connectors) for current roles, modes, and
 external-system preparation.
 

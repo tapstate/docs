@@ -5,7 +5,7 @@ ai:
   kind: guide
   id: install-tapstate
   maturity: preview
-  aliases: [install tapstate, tapstate CLI download, tapstate v0.6.0]
+  aliases: [install tapstate, tapstate CLI download, tapstate v0.7.0]
 ---
 
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
@@ -27,8 +27,8 @@ Docker playground and does not add `tapstate` to your shell `PATH`.
 ## Understand the CLI and server
 
 The CLI can author and validate a local workspace without a server. A tapstate
-server runs pipelines and exposes an authenticated control plane. The v0.6
-server image also includes the web application. Open the server's base URL in a
+server runs pipelines and exposes an authenticated control plane. The server image
+also includes the web application. Open the server's base URL in a
 browser to sign in. The local Playground uses `http://127.0.0.1:8080` on its
 Docker host; see [Quickstart](/docs/overview/quickstart#3-open-the-web-application)
 for access from another computer.
@@ -41,7 +41,7 @@ server-backed path, use the disposable [Quickstart](/docs/overview/quickstart),
 which downloads its own CLI and starts the server and sample databases with
 Docker Compose. You do not need to install the CLI first.
 
-Before upgrading an existing server, read [Upgrade to v0.6](/docs/guides/upgrade-to-v0-6).
+Before upgrading an existing server, read [Upgrade to v0.7](/docs/guides/upgrade-to-v0-7).
 Installing a newer CLI does not upgrade the server or migrate its data.
 
 ## Supported platforms
@@ -87,7 +87,7 @@ curl -fsSL https://install.tapstate.dev/cli | sh
 </Tab>
 </Tabs>
 
-The installer sends a one-time anonymous ping on successful installation to help prioritize platform support.
+By default, a successful installation sends an anonymous event to help prioritize platform support.
 
 <Accordions>
 <Accordion title="Anonymous telemetry and opt-out">
@@ -96,7 +96,9 @@ The event records the release, OS, architecture, entry point, timestamp, channel
 and a random installation ID stored at `$HOME/.tapstate/.installation-id`. It
 does not monitor CLI commands or pipeline data. The default channel is
 `community`; project automation uses `TAPSTATE_TELEMETRY_CHANNEL=internal` to keep
-its installs out of community counts.
+its installs out of community counts. Scheduled GitHub Actions installs skip the
+default telemetry request while keeping the installation ID. An explicit
+`TAPSTATE_TELEMETRY_URL` uses the specified endpoint instead.
 
 To opt out, set `TAPSTATE_TELEMETRY=off` inline or in your shell environment:
 
@@ -148,7 +150,7 @@ Verify the result:
 tapstate --version
 ```
 
-The command should report `tapstate 0.6.0`.
+The command should report `tapstate 0.7.0`.
 
 When the name `tap` is available, the installer also creates it as an optional
 shortcut to `tapstate`. It skips the shortcut instead of replacing an existing
@@ -190,10 +192,10 @@ set `TAPSTATE_VERSION`:
 
 ```bash
 curl -fsSL https://install.tapstate.dev/cli | \
-  TAPSTATE_VERSION=0.6.0 sh
+  TAPSTATE_VERSION=0.7.0 sh
 ```
 
-Replace `0.6.0` with another published release when you need to pin a different version.
+Replace `0.7.0` with another published release when you need to pin a different version.
 
 ### Use a different installation directory
 
@@ -208,29 +210,29 @@ The selected directory must be on your `PATH` before you can invoke `tapstate` b
 
 ### Install manually
 
-The [v0.6.0 release](https://github.com/tapstate/tapstate/releases/tag/v0.6.0) includes four platform archives, individual `.sha256` files, and a combined `checksums.txt`. Download the archive that matches your system and verify its checksum before extracting it.
+The [v0.7.0 release](https://github.com/tapstate/tapstate/releases/tag/v0.7.0) includes four platform archives, individual `.sha256` files, and a combined `checksums.txt`. Download the archive that matches your system and verify its checksum before extracting it.
 
 
 For example, on Apple silicon:
 
 ```bash
-curl -fL --retry 2 -C - -o tapstate-0.6.0-darwin-arm64.tar.gz \
-  https://github.com/tapstate/tapstate/releases/download/v0.6.0/tapstate-0.6.0-darwin-arm64.tar.gz
-curl -fL --retry 2 -C - -o tapstate-0.6.0-darwin-arm64.tar.gz.sha256 \
-  https://github.com/tapstate/tapstate/releases/download/v0.6.0/tapstate-0.6.0-darwin-arm64.tar.gz.sha256
+curl -fL --retry 2 -C - -o tapstate-0.7.0-darwin-arm64.tar.gz \
+  https://github.com/tapstate/tapstate/releases/download/v0.7.0/tapstate-0.7.0-darwin-arm64.tar.gz
+curl -fL --retry 2 -C - -o tapstate-0.7.0-darwin-arm64.tar.gz.sha256 \
+  https://github.com/tapstate/tapstate/releases/download/v0.7.0/tapstate-0.7.0-darwin-arm64.tar.gz.sha256
 
-shasum -a 256 -c tapstate-0.6.0-darwin-arm64.tar.gz.sha256
-tar -xzf tapstate-0.6.0-darwin-arm64.tar.gz
+shasum -a 256 -c tapstate-0.7.0-darwin-arm64.tar.gz.sha256
+tar -xzf tapstate-0.7.0-darwin-arm64.tar.gz
 ```
 
-The archive extracts a complete `tapstate-cli-0.6.0` bundle. Keep its `bin` and
+The archive extracts a complete `tapstate-cli-0.7.0` bundle. Keep its `bin` and
 `libexec` directories together so `tapstate mcp` can find its sidecar.
 
 If macOS blocks a manually downloaded binary after the checksum passes, remove the quarantine attribute and try again:
 
 ```bash
-xattr -d com.apple.quarantine ./tapstate-cli-0.6.0/bin/tapstate
-./tapstate-cli-0.6.0/bin/tapstate --version
+xattr -d com.apple.quarantine ./tapstate-cli-0.7.0/bin/tapstate
+./tapstate-cli-0.7.0/bin/tapstate --version
 ```
 
 ### Update or remove the CLI
@@ -258,4 +260,4 @@ authentication flow and Codex, Claude Code, and generic host examples.
 
 - [Create your own workspace](/docs/overview/create-workspace) using only the installed CLI.
 - If Docker is available, run the [Quickstart](/docs/overview/quickstart), then [explore the order-state demo](/docs/overview/order-state-demo).
-- Review the [v0.6 release notes](/docs/releases/v0.6) before evaluating the runtime.
+- Review the [v0.7 release notes](/docs/releases/v0.7) before evaluating the runtime.

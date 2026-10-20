@@ -1,6 +1,6 @@
 ---
 title: Apply and run a pipeline
-description: Apply a validated workspace and control the tapstate preview pipeline lifecycle
+description: Apply resource files with the CLI and control the tapstate pipeline lifecycle
 ai:
   kind: guide
   id: apply-and-run
@@ -8,7 +8,12 @@ ai:
   aliases: [tapstate apply, tapstate start pipeline, tapstate pause resume stop]
 ---
 
-Apply turns local drafts into server-held resources. Lifecycle commands then write the desired state that the runtime converges toward.
+Use this guide for CLI authoring and automation. For the web workflow, see
+[Build a pipeline](/docs/guides/build-a-pipeline).
+
+`apply` validates resource files and stores them on the server. Lifecycle
+commands then request the state that the runtime converges toward. Applying a
+changed pipeline does not restart its active run.
 
 ## Before you begin
 
@@ -60,7 +65,9 @@ get orders_source
 get orders_to_operational_state
 ```
 
-Local files remain authoring input; connected `get` and `ls` show the server's current truth.
+Local files remain authoring input; connected `get` and `ls` show the stored
+resources. Source configuration is omitted from generic artifact output to
+protect credentials; this output is not a complete configuration backup.
 
 ## Start the pipeline
 
@@ -77,22 +84,41 @@ Verify data at the destination. A lifecycle command succeeding proves that the i
 
 | Command | Legal starting state | Target state | Progress behavior |
 |---|---|---|---|
-| `start` | `NEW`, `STOPPED`, `COMPLETED` | `RUNNING` | Starts at the latest applied revision. |
+| `start` | `NEW`, `STOPPED`, `COMPLETED` | `RUNNING` | Starts at the latest applied revision, using retained progress when available. |
 | `pause` | `RUNNING` | `PAUSED` | Retains the current revision and in-run progress. |
-| `resume` | `PAUSED` | `RUNNING` | Requires the paused revision to remain current. |
-| `stop` | `RUNNING`, `PAUSED`, `FAILED` | `STOPPED` | Clears the run so the next `start` begins a fresh run. |
+| `resume` | `PAUSED` | `RUNNING` | Continues from retained progress. Compatible edits can rebuild the run at the latest revision. |
+| `stop` | `RUNNING`, `PAUSED`, `FAILED` | `STOPPED` | Asks for confirmation, then clears this pipeline's recovery position and operator state. |
+| `stop --keep-state` | `RUNNING`, `PAUSED`, `FAILED` | `STOPPED` | Retains recovery positions and operator state for the next run. |
 
-An illegal transition returns `lifecycle.illegal-transition`. If a paused pipeline was reapplied, `resume` can return `lifecycle.incompatible-revision`; stop it, review the change, then start a fresh run.
+An illegal transition returns `lifecycle.illegal-transition`. If edits cannot
+reuse a paused pipeline's state, `resume` returns
+`lifecycle.incompatible-revision`. Review the change and decide whether the
+next run can retain state or needs a full reload.
+
+A lifecycle request can be accepted before the runtime finishes the transition.
+Before starting again, wait for the status API's `observedState` to reach
+`STOPPED`.
+
+Plain `stop` clears state. Use `--keep-state` when you intend to continue from
+retained progress. To accept clearing in a script, use `stop <id> -y`.
+
+Clearing leaves this pipeline without a recovery position. Shared capture
+state is cleared only when its last dependent pipeline clears state, so
+stopping one consumer does not guarantee a full source reload. Neither choice
+deletes existing destination rows; reconcile them with your chosen write
+strategy. See [State and storage](/docs/concepts/storage).
 
 Recover a failed pipeline deliberately:
 
 ```text
 logs orders_to_operational_state
-stop orders_to_operational_state
+stop orders_to_operational_state --keep-state
 start orders_to_operational_state
 ```
 
-Do not start directly from `FAILED`.
+Do not start directly from `FAILED`. Keeping state does not repair an invalid
+recovery position; investigate recovery diagnostics before retrying or clearing
+progress.
 
 ## Verify the outcome
 
@@ -112,4 +138,4 @@ See [State and storage](/docs/concepts/storage) and [Configure a cluster](/docs/
 
 - [Observe a pipeline](/docs/guides/observe-a-pipeline)
 - [Troubleshooting](/docs/guides/troubleshooting)
-- [Current preview boundaries](/docs/releases/v0.5#known-limitations-and-issues)
+- [Current preview boundaries](/docs/releases/v0.7#known-limits-and-issues)

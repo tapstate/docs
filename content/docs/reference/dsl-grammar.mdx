@@ -162,6 +162,9 @@ patterns, even if a YAML parser happens to accept the input form.
 
 ## Compatibility rules
 
+- In v0.7, configure parallelism and batching with node-level `execution`.
+  The legacy pipeline `settings.parallelism` and `settings.batch_size` fields
+  still parse but have no runtime effect. See [Node execution](/docs/reference/pipeline#node-execution).
 - Unknown top-level fields are rejected. Views no longer accept `schema:` in
   v0.6; remove the block from local resources before applying them.
 - A Nest accepts `state.database` for durable state placement and `as: flat`

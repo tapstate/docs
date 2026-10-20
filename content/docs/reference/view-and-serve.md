@@ -56,6 +56,11 @@ that identifies the output row. The current preview
 materializes the warm database layer. The Schema also describes `hot` and
 `cold`, but this release refuses those tiers instead of materializing them.
 
+Set optional `execution` on an inline view or the reusable View resource.
+The `view.use` reference does not accept an execution override. View sinks
+default to cluster-wide parallelism `4`; see
+[Node execution](/docs/reference/pipeline#node-execution).
+
 ### View schema compatibility
 
 Views do not accept `schema:` in v0.6. Remove it from local definitions; validate
@@ -111,8 +116,18 @@ Each element requires a target connection ID in `source` and can include:
 - `id`;
 - `write_mode`: `upsert` or `append`;
 - `ddl`: `apply`, `ignore`, or `fail`;
+- `on_full_load`: `append` (default), `clear`, or `fail`;
 - target table rename rules;
 - connector-owned `options`.
+- node-level `execution` for parallelism and batching.
+
+Sync sinks default to cluster-wide parallelism `4`. Set execution on each
+`sync` element; it is not a setting on the containing `serve` block.
+
+`on_full_load` controls existing target rows before a new full load. `append`
+keeps them, `clear` removes them, and `fail` refuses a nonempty target. Resume,
+recovery, and CDC-only runs do not clear target rows. The connector must expose
+the capabilities needed by the selected policy.
 
 Before starting a pipeline that writes a View or uses `serve.sync`, discover the schema for each
 pipeline source. Applying the resources does not perform that discovery. If a

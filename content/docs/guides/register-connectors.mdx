@@ -26,16 +26,18 @@ are unresolved. It never opens a network connection.
 
 ## When registration is required
 
-Tapstate server container images (`ghcr.io/tapstate/tapstate`) do not bundle connector JARs or register connectors by default. Keeping connector artifacts separate minimizes container footprints and ensures third-party driver license terms (such as Oracle JDBC terms) remain isolated from the base runtime.
+The standard self-hosted server image starts without connector JARs. The Cloud
+image stages a fixed connector set. Check the server's catalog before deciding
+whether registration is needed.
 
 Whether you need to register a connector depends on how the server is deployed:
 
-- **Quickstart:** no manual registration is required for MySQL, PostgreSQL, or MongoDB. The Quickstart downloads and registers those three artifacts automatically before applying the sample workspace. Oracle and SQL Server are not part of the demo and must be registered explicitly if needed.
+- **Quickstart:** no manual registration is required for MySQL, PostgreSQL, or MongoDB. The Quickstart downloads and registers those three artifacts automatically before applying the sample workspace. Oracle, SQL Server, and Db2 are not part of the demo.
 - **New server deployments:** register each connector artifact before applying connections that reference it. Run `connectors -o json` to inspect the catalog; if a connector is absent, register it by published ID (`register <id>`) or upload a local JAR.
 - **Upgrades from prior versions:**
   - Existing registered connectors persist in the backend store across server container upgrades. You do not need to re-register existing connectors after updating the server image.
-  - Newly certified connectors (`oracle` and `sqlserver` in v0.5) are not automatically registered during upgrade; run `register oracle` or `register sqlserver` before using them.
-  - Re-registering an existing connector with an updated JAR upgrades that connector on the server. Re-registering an identical artifact is a safe no-op with `newlyRegistered: false`.
+  - A server upgrade does not install a newly needed connector. Register it before use.
+  - Re-registering identical bytes is a safe no-op with `newlyRegistered: false`. For a different JAR, retain the old artifact, test the replacement, and plan affected pipeline restarts.
 - **Pre-seeded offline deployments:** a server started with connector artifacts in its seed directory (`TAPSTATE_CONNECTORS_SEED_DIR`, default `/var/lib/tapstate/connectors`) scans and registers those artifacts automatically at startup.
 
 After you connect and sign in, run `connectors -o json` to inspect the server's
@@ -49,32 +51,49 @@ the registration step and continue with [Apply the connections](#apply-the-conne
 
 ## Official preview connector artifacts
 
-The current preview officially certifies five database kinds across 16 accepted connector IDs.
-Pre-built downloadable artifacts are published for the five primary base connector IDs:
+The default accepted set contains 17 connector IDs. Registration acceptance
+does not certify every managed service or database version:
 
-| Database | Primary downloadable ID | Accepted connector IDs | Certified use |
+| Database | Downloadable IDs | Accepted connector IDs | Direction |
 |---|---|---|---|
-| MySQL | `mysql` | `mysql`, `aliyun-rds-mysql`, `tencent-db-mysql`, `aws-rds-mysql` | Read (Snapshot + CDC) |
-| PostgreSQL | `postgres` | `postgres`, `aliyun-rds-postgres`, `tencent-db-postgres`, `aws-rds-postgres` | Read (Snapshot + CDC) |
-| MongoDB | `mongodb` | `mongodb`, `mongodb-atlas`, `aliyun-db-mongodb`, `tencent-db-mongodb` | Read and Write |
-| Oracle | `oracle` | `oracle`, `aliyun-rds-oracle`, `aws-rds-oracle` | Read (Snapshot + CDC) |
-| SQL Server | `sqlserver` | `sqlserver`, `aliyun-rds-sqlserver` | Read (Snapshot + CDC) |
+| MySQL | `mysql`, `aws-rds-mysql` | `mysql`, `aliyun-rds-mysql`, `aws-rds-mysql`, `polar-db-mysql`, `mysql-pxc` | Read; managed-service validation varies. |
+| PostgreSQL | `postgres` | `postgres`, `aliyun-rds-postgres`, `aliyun-adb-postgres`, `polar-db-postgres`, `tencent-db-postgres` | Read. |
+| MongoDB | `mongodb`, `mongodb-atlas` | `mongodb`, `mongodb-atlas`, `aliyun-db-mongodb`, `tencent-db-mongodb` | Read and write; live Atlas acceptance is currently deferred. |
+| Oracle | `oracle` | `oracle` | Read. |
+| SQL Server | `sqlserver` | `sqlserver` | Read. |
+| Db2 | `db2` | `db2` | Source-only preview. |
 
-Official artifacts for the five primary base IDs are published through the [connector preview release](https://github.com/tapstate/tapstate/releases/tag/connectors-preview).
+Artifacts are published through the floating [connector preview release](https://github.com/tapstate/tapstate/releases/tag/connectors-preview).
 The Oracle JAR bundles `ojdbc8`, `orai18n`, and `xdb` under the Oracle Free Use Terms;
 the SQL Server JAR bundles the Microsoft JDBC Driver under the MIT License. Their
-implementations are subject to the applicable commercial connector terms.
+implementations are subject to the applicable commercial connector terms. The
+Db2 JAR bundles the IBM Data Server Driver under IBM's license terms; its
+connector implementation is also subject to the applicable commercial terms.
+
+Db2 has no automated live-database release lane. The four external Atlas
+acceptance classes remain deferred, and Amazon RDS for MySQL has no completed
+real-service acceptance. Validate the exact artifact and service you intend to
+use. See the [v0.7 release limits](/docs/releases/v0.7#known-limits-and-issues).
 
 ## Current preview registration boundary
 
-The current preview documents MySQL, PostgreSQL, Oracle, and SQL Server as source
-read artifacts, and MongoDB as the operational-state target artifact. A `serve.sync`
-element installs onto the MongoDB kind and no other; applying a pipeline whose sync
-names any other connector is refused with `dsl.unsupported-target-connector`.
+The public guides cover MySQL, PostgreSQL, Oracle, SQL Server, and the Db2
+preview as sources, with MongoDB as the operational-state target.
+
+In Cloud, `serve.sync` accepts only `mongodb` or `mongodb-atlas` targets.
+Self-hosted deployments use the registered catalog's sink capability, subject
+to source-only restrictions. Db2 and `aws-rds-mysql` are source-only in both
+modes. The server rejects either as a sync target with
+`dsl.unsupported-target-connector`, even when the `aws-rds-mysql` catalog entry
+reports sink capability. Allowing a connector does not certify its write behavior.
 
 Registering an artifact with an unaccepted connector ID returns
 `connector.not-official`; the server does not register it. The same boundary
 applies when a server scans a connector seed directory.
+
+In a cluster, register through one entry member. Concurrent registration of the
+same connector can produce `connector.ambiguous-registration`; avoiding
+concurrent seeding does not repair an already duplicated registry.
 
 ## Register connector artifacts
 
@@ -96,15 +115,21 @@ register postgres -o json
 register mongodb -o json
 register oracle -o json
 register sqlserver -o json
+register db2 -o json
 connectors -o json
 ```
 
 The CLI resolves and downloads the exact published artifact from the GitHub `connectors-preview`
-release, verifies its integrity, and uploads it to the server. Automatic download by ID is supported
-for the five primary base connector IDs (`mysql`, `postgres`, `mongodb`, `oracle`, `sqlserver`). To
-register a managed cloud variant or custom build, pass the path to its local JAR file as described below.
+release, verifies its integrity, and uploads it to the server. Automatic download
+by ID supports `mysql`, `postgres`, `mongodb`, `mongodb-atlas`, `aws-rds-mysql`,
+`oracle`, `sqlserver`, and `db2`. Register only the artifacts you need. For an
+accepted ID without a download entry, pass a local JAR as described below.
 To route downloads through an internal HTTPS mirror, set the `TAPSTATE_CONNECTORS_URL` environment
 variable in your CLI environment.
+
+The preview assets can change independently of a versioned server release.
+Use a current CLI with matching size and digest metadata. If integrity checks
+fail, do not disable verification or substitute an untrusted JAR.
 
 ### Register from a local file or directory
 
@@ -151,6 +176,10 @@ The report contains:
 
 A warning does not fail the overall outcome. A failed check produces `outcome: FAILED`. If the connector throws instead of returning checks, tapstate returns a coded connector test failure.
 
+The CLI waits for the server to finish connection testing and schema discovery;
+these requests no longer have a 30-second client read deadline. You can cancel
+the wait. Connector, proxy, and connection-establishment limits still apply.
+
 Read the most recently stored report without testing again:
 
 ```text
@@ -188,7 +217,9 @@ schema orders_source orders -o json
 | Symptom | Check |
 |---|---|
 | Connector not found | Download the matching official JAR, register it, then confirm availability with `connectors`. |
-| `connector.not-official` | The artifact is outside the published MySQL, PostgreSQL, and MongoDB preview path. Confirm its connector ID and use the current release assets. |
+| `connector.not-official` | Confirm the artifact's ID against the server's accepted set. Registration acceptance and published database validation are separate. |
+| `connector.artifact-unreadable` | The upload is not a complete readable JAR/ZIP archive. Download it again; HTTP 400 names the artifact. |
+| `connector.ambiguous-registration` | Stop concurrent seeding and preserve the registry for investigation; do not assume another registration repairs it. |
 | API-level incompatibility | Use an artifact built for a compatible PDK API level. |
 | `FAILED` connection report | Read every failed check; verify DNS, port, TLS, credentials, database, and permissions from the server host. |
 | No stored test result | Run `test` before `test-result`. |
@@ -199,5 +230,6 @@ schema orders_source orders -o json
 
 - [MySQL connector](/docs/connectors/mysql)
 - [PostgreSQL connector](/docs/connectors/postgresql)
+- [Db2 connector](/docs/connectors/db2)
 - [MongoDB connector](/docs/connectors/mongodb)
 - [Apply and run a pipeline](/docs/guides/apply-and-run)

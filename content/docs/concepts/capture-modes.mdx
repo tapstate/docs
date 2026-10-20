@@ -65,13 +65,58 @@ For a CDC source, `settings.read_mode` controls a pipeline run:
 prerequisites supported by that connector; a source's `mode` and a pipeline's
 read mode describe different choices.
 
-Compatible pipelines can share a CDC capture while keeping their own initial
-loads and consumer positions. Only selected tables belong to a pipeline's
-capture contract. Snapshot-only Nest runs can assemble the selected data, but
-they have no CDC continuation position and may reread after restart.
+| Pipeline read mode | First run | Recovery with retained state |
+|---|---|---|
+| `snapshot_and_cdc` (default) | Copy existing rows, then follow changes. | Use retained initial-load completion and resume the consumer's change tail. Unconfirmed work can be replayed. |
+| `cdc_only` | Skip the initial copy and follow changes from the selected starting position. | Resume from retained progress; do not use another pipeline's later position. |
+| `snapshot_only` | Read the selected data once without following later changes. | No CDC continuation position is created. A replacement run can reread the initial load. |
+
+Compatible pipelines share a CDC capture by default while keeping independent
+consumer positions and initial-load completion. Only selected tables belong
+to a pipeline's capture contract. Changing `read_mode` does not clear existing
+state or create a fresh initial load. Review the lifecycle choices below
+before resetting a run.
+
+### Shared and direct capture
+
+With shared capture, changes are durably written to tapstate's change log before
+pipelines consume them. The connector can then acknowledge those changes to
+the source. Each pipeline separately records what its target has confirmed.
+A slower consumer catches up from the retained change log.
+
+A source read with `srs: false` in the pipeline uses direct capture instead.
+Its recovery progress and source acknowledgements follow that pipeline's
+target confirmations. It depends on the source retaining the changes it has
+not confirmed.
+
+Keep both the metadata store and the source logs required by the chosen path.
+Do not delete or restore live metadata to reset a pipeline: the source may
+already have released changes that remain only in tapstate's log. See
+[State and storage](/docs/concepts/storage#recovery-state).
+
+### Resume or rerun
+
+- To stop temporarily, use `stop <pipeline-id> --keep-state`, then
+  `start <pipeline-id>`. A plain `restart <pipeline-id>` also retains state.
+- `restart <pipeline-id> --rerun` clears that pipeline's retained state before
+  starting again. Review its reset and destination write strategy first; a
+  rerun can repeat writes.
+- A stop without `--keep-state` clears the pipeline's recovery and operator
+  state. Review the confirmation before proceeding.
+
+Clearing one consumer does not clear the shared chain while another consumer
+still depends on it, including the chain's completed-table history. It does
+not guarantee a full source reload. Coordinate a complete reset with every
+dependent pipeline. State clearing does not delete rows already in the target.
+
+If retained history is missing, `capture.recovery-log-gap` refuses recovery.
+If an older checkpoint does not prove a safe continuation,
+`capture.recovery-progress-unproven` preserves the state and refuses to guess.
+Keep a backup and inspect the failure before choosing a rerun. Upgrading does
+not repair previously unsafe recovery metadata automatically.
 
 Full load plus CDC does not promise exactly-once output or a lossless handoff
-for every connector. Verify the [v0.6 positioning limits](/docs/releases/v0.6#known-limits-and-issues)
+for every connector. Verify the [v0.7 positioning limits](/docs/releases/v0.7#known-limits-and-issues)
 and test representative changes before relying on continuity.
 
 ## Stream and API sources

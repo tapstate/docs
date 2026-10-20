@@ -10,7 +10,7 @@ ai:
 
 The preview server exposes an HTTP control plane. This API exists only
 after a separate tapstate server is running; installing the CLI does not start
-the server or expose an HTTP port. The v0.6 server image includes the web
+the server or expose an HTTP port. The server image includes the web
 application at the server's root URL.
 
 The API has no stable OpenAPI publication or versioned URL namespace yet; pin
@@ -22,7 +22,7 @@ handle authentication, coded errors, and contract changes.
 
 ## Base URLs and authentication
 
-Unauthenticated endpoints:
+Public endpoints and self-hosted sign-in endpoints:
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -44,22 +44,22 @@ curl -sS http://127.0.0.1:8080/version
 
 ```json
 {
-  "version": "0.6.0",
+  "version": "0.7.0",
   "dslVersions": ["tapstate/v1"],
-  "dataVersion": 11
+  "dataVersion": 12
 }
 ```
 
 `version` identifies the server release. `dslVersions` lists the accepted
 authoring grammars, and `dataVersion` identifies the control-store schema.
-The example shows v0.6.0 after its startup migrations. Use the reported values
+The example shows v0.7.0 after its startup migrations. Use the reported values
 when checking an upgrade; installing a newer CLI does not change them.
 
 Use `/healthz` for process/engine liveness. An engine lost to out-of-memory
 returns `503` with `broken`. A `200` response does not verify source, target, or
 MongoDB health and does not identify the running build.
 
-Every `/api/**` endpoint requires:
+On a self-hosted server, authenticate `/api/**` requests with:
 
 ```http
 Authorization: Bearer <token>
@@ -67,7 +67,29 @@ Authorization: Bearer <token>
 
 See [Bootstrap and authenticate](/docs/guides/bootstrap-and-auth) for the request sequence.
 
+Cloud uses the managed browser session instead of the self-hosted bearer and
+local-user flow. Endpoint availability depends on the deployment mode.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/auth/me` | Read the authenticated identity; the response is not cacheable. |
+| `GET` | `/api/cluster/context` | Read the cluster context from the current Cloud session; Cloud only. |
+
+Cloud sign-in also exposes these system routes:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/auth/exchange` | Exchange a provider-issued `code`, set the Cloud session cookie, and redirect to `/`. |
+| `POST` | `/auth/invalidate-session` | Provider back-channel callback to invalidate a Cloud session. |
+
+The invalidation callback requires `jti`, `ts`, `nonce`, and `sign` parameters
+verified against the provider's signature over `POST|ts|nonce|jti`. A user
+bearer token does not authorize this callback. Both routes are Cloud-only and
+return non-cacheable responses.
+
 ### Create and use a user session
+
+These endpoints manage local user sessions on a self-hosted server.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -134,6 +156,11 @@ header:
 
 The server returns `428` when the header is missing or malformed, `412` when the hash is stale, and `204` after the artifact is removed.
 
+Source artifacts have a display-only `canonicalForm`: connector `config` is
+omitted, while `contentHash` still identifies the full stored resource. Do not
+use this output as a backup or reapply it as a complete Source definition.
+Use the structured Source endpoints to edit an existing connection.
+
 Apply request:
 
 ```json
@@ -159,6 +186,31 @@ identify the affected `source`, `table`, and resource `path`. Select a source
 table with a discovered primary key, or use `append` only for insert-only
 delivery. A unique index, target-side key, or `tables[].pk` does not satisfy the
 current runtime check.
+
+### Preview pipeline data
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/artifacts:preview` | Execute a bounded, no-write sample preview and stream NDJSON events. |
+
+The request contains `pipelineId` and a `drafts` array in the apply-request
+shape. Optional fields are `outputId`, `rootLimit`, and `sampleId`. A draft
+can include `expectedContentHash` to guard against a changed stored resource.
+The request is limited to 256 drafts and 4 MiB.
+
+Send `Accept: application/x-ndjson, application/json` to accept both the event
+stream and JSON errors returned before streaming starts.
+The successful response content type is `application/x-ndjson`. Read each event's `kind`
+and `payload`; HTTP `200` means the stream opened, not that the preview
+succeeded. `run.completed` and `run.failed` are terminal events. Closing the
+connection cancels the preview.
+
+Preview has a 45-second deadline and uses a default and maximum `rootLimit`
+of 100 root samples. It neither applies the candidate resources nor writes to
+the target. Results can use `mongo-extended-json` when the MongoDB target's
+codec can render them, or `logical-json` otherwise; inspect the result format.
+Sampling does not verify continuous CDC delivery. For draft compilation
+without sample reads, use `draft:preview` below.
 
 ## Connector and connection endpoints
 
@@ -195,6 +247,11 @@ A connector that completes its checks normally returns HTTP `200` even when the 
 
 Connection test and discovery execute synchronously and can take longer than ordinary reads. Configure the caller and any reverse proxy with an appropriate timeout, and do not retry a write blindly.
 
+The CLI and MCP gateway wait for connection tests and discovery without a
+fixed request deadline. A timeout imposed by another caller or proxy does not
+prove that the server stopped the operation; read its stored result before
+retrying.
+
 ## Source endpoints
 
 | Method | Path | Purpose |
@@ -221,6 +278,31 @@ Update and delete require the quoted 64-character content hash returned in `ETag
 Use one write model consistently. Prefer `/api/artifacts:apply` for resource
 authoring and pipeline batches. Use the structured source endpoints when a
 client needs source-specific draft and `ETag` workflows.
+
+## Sample sources and State Store setup
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/sample-sources` | List deployment-configured sample sources. |
+| `GET` | `/api/sample-sources/catalog` | Read sample definitions and availability. |
+| `POST` | `/api/sample-sources:install` | Install the deployment's default sample set synchronously. |
+| `POST` | `/api/sample-sources/installations` | Start a background installation for selected sample IDs. |
+| `GET` | `/api/sample-sources/installations/{jobId}` | Read the initiating user's installation progress. |
+| `POST` | `/api/state-store` | Test and save a user-supplied MongoDB Atlas State Store connection; Cloud only. |
+| `GET` | `/api/views` | List collections maintained by pipelines. |
+
+To install selected samples, send `{"ids":["<available-sample-id>"]}`. Select
+1–10 distinct IDs whose catalog entries are available. The initial response
+contains a job `id`, per-item stages, and `finished: false`. Poll the job until
+`finished` is true, then inspect every item's stage and `errorCode`. A finished
+job can contain failures. Jobs are in-memory and can expire; use the same
+authenticated identity when polling.
+
+`POST /api/state-store` accepts the Atlas connector configuration directly.
+It requires a passed connection test before creating the `atlas-store` Source
+with the `store: "true"` label, and refuses a second configured State Store.
+This user connection is separate from Cloud's internal metadata and operator
+state databases. The endpoint is unavailable in self-hosted mode.
 
 ## Read data through a declared source
 
@@ -293,8 +375,8 @@ Connect to this WebSocket endpoint to stream changes from one collection:
 /api/data-browser/{source}/{collection}/tail
 ```
 
-The WebSocket handshake requires the same bearer credential as other `/api`
-requests. To filter the stream, provide the structured filter as URL-encoded
+On a self-hosted server, the WebSocket handshake requires the same bearer
+credential as other `/api` requests. To filter the stream, provide the structured filter as URL-encoded
 JSON in the `filter` query parameter. Each message contains a `kind` of
 `INSERT`, `UPDATE`, or `DELETE`, an `at` timestamp, and any available `before`
 or `after` row.
@@ -307,7 +389,7 @@ also ends the connection with a coded reason.
 
 ## Machine-token endpoints
 
-These endpoints require an administrator credential:
+On a self-hosted server, these endpoints require an administrator credential:
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -414,13 +496,52 @@ Create or replace complete pipeline resource definitions:
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/pipelines` | List structured pipeline views; accepts optional `offset` and `limit`. |
+| `GET` | `/api/pipelines` | List the unified catalog, including draft-only pipelines; accepts optional `offset` and `limit`. |
+| `GET` | `/api/pipelines:artifacts` | List artifact-backed pipeline views; accepts optional `offset` and `limit`. |
 | `GET` | `/api/pipelines/{id}` | Read one structured pipeline view and its `ETag`. |
 | `POST` | `/api/pipelines` | Create a pipeline resource. Returns `201 Created` with `ETag`. |
 | `PUT` | `/api/pipelines/{id}` | Replace a pipeline definition. Requires optimistic concurrency control with `If-Match`. |
 
 - **Concurrency control**: `PUT /api/pipelines/{id}` enforces optimistic concurrency control using the `If-Match` header. Pass the quoted SHA-256 ETag from `GET` (e.g. `If-Match: "<hash>"`). Omitting or misformatting `If-Match` returns HTTP `428` (`pipeline.precondition-required`). If the ETag does not match the server's current stored hash, the request returns HTTP `412` (`pipeline.version-conflict`).
 - **Duplicate ID rejection**: `POST /api/pipelines` returns HTTP `409` (`pipeline.already-exists`) if `{id}` is already registered.
+
+## Pipeline draft endpoints
+
+A draft stores authoring state separately from the published pipeline artifact.
+Saving or compiling a draft does not start a pipeline.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/pipeline-drafts` | List draft summaries; accepts optional `offset` and `limit`. |
+| `GET` | `/api/pipelines/{id}/draft` | Read the saved draft and its revision `ETag`. |
+| `POST` | `/api/pipelines/{id}/draft` | Create a draft; returns `201` and its `ETag`. |
+| `PUT` | `/api/pipelines/{id}/draft` | Replace a draft using `If-Match`. |
+| `DELETE` | `/api/pipelines/{id}/draft` | Discard a draft using `If-Match`; returns `204`. |
+| `POST` | `/api/pipelines/{id}/draft:preview` | Compile the saved draft or an unsaved candidate to an artifact and DSL. |
+| `POST` | `/api/pipelines/{id}/draft:publish` | Compile and apply a draft at the stated revision. |
+| `POST` | `/api/pipelines/{id}/draft:rebase` | Update the draft's base artifact hash after an explicit conflict review. |
+
+Draft bodies include `pipelineId`, `mode` (`graph` or `wizard`), and the
+matching `graph` or `wizard` document. `pipelineId` must match the path. The
+server owns revision increments, timestamps, and `updatedBy`.
+
+Draft `ETag` values are quoted positive integer revisions, such as `"3"`.
+They differ from artifact SHA-256 hashes. Copy the draft's current `ETag` into
+`If-Match` for replacement or deletion. Missing or malformed preconditions
+return `428` (`pipeline-draft.precondition-required`); a changed revision
+returns `412` (`pipeline-draft.revision-conflict`).
+
+`draft:preview` with no body compiles the current saved revision. A body can
+specify `revision`, and optionally `candidate` containing an unsaved draft.
+It returns `artifact` and `dsl`, without applying resources or reading data.
+
+Publish with `{"revision":3,"artifactHash":"<current-artifact-hash>"}`.
+For a new pipeline, the hash can be `null`. A changed underlying artifact
+returns `409` (`pipeline-draft.artifact-conflict`); review the newer artifact
+before rebasing with an explicit `revision` and `artifactHash` (string or
+`null`). Rebase preserves the draft edits; it does not merge them automatically.
+Publishing does not start or restart the pipeline. Discarding a draft does
+not delete its published artifact.
 
 ## Pipeline position endpoints
 
@@ -474,17 +595,31 @@ Position document shape:
 
 | Method | Path | Boundary |
 |---|---|---|
-| `GET` | `/api/pipelines/{id}/status` | Store-backed observed lifecycle state |
+| `GET` | `/api/pipelines/{id}/status` | Lifecycle intent, display phase, and available runtime observation |
 | `GET` | `/api/pipelines/{id}/metrics` | Open metric map and optional `perTableOffset` |
 | `GET` | `/api/pipelines/{id}/metrics/history` | Bounded output-rate and selected-table lag history |
 | `GET` | `/api/pipelines/{id}/explain` | Explanation derived from current observation evidence |
 | `GET` | `/api/pipelines/{id}/snapshot` | Per-table initial-load progress when available |
 | `GET` | `/api/pipelines/{id}/logs` | Bounded node-local log tail |
 
-The status response includes `pipelineId` and `state`. When the observed state
-records a job failure, it also includes a `failure` object with `code`,
-`params`, and a reader-facing `message`. The same shape is used in status watch
-frames. The failure object is omitted when there is no failure to report.
+The status response separates lifecycle intent from runtime evidence:
+
+| Field | Meaning |
+|---|---|
+| `state` | Observed lifecycle state, or `NEW` before the first runtime observation. |
+| `desiredState` | Requested lifecycle intent, when one exists. |
+| `displayState` | Catalog display phase, including `DRAFT` and `STARTING`. |
+| `hasArtifact` | Whether a published pipeline artifact exists. |
+| `observedState`, `observedAt`, `observedAgeMillis` | Runtime state and its age; omitted before the first observation. |
+| `failure` | Observed failure with `code`, `params`, and `message`; omitted when absent. |
+| `plan`, `awaitingRebalance` | Execution-plan details and pending placement changes, when available. |
+
+A saved draft can have `displayState: "DRAFT"` and `hasArtifact: false`.
+A start request can produce `displayState: "STARTING"` while `state` is still
+`NEW`. Metrics, snapshot, and explain require an applied pipeline and a runtime
+observation. An applied pipeline without an observation returns
+`monitor.no-observation`; a draft without a published artifact returns
+`lifecycle.unknown-pipeline`.
 
 WebSocket endpoints:
 
@@ -493,7 +628,13 @@ WebSocket endpoints:
 | `/api/pipelines/{id}/status/watch` | Emits status when the observed state changes. |
 | `/api/pipelines/{id}/logs/follow` | Emits newly observed node-local log lines. |
 
-The WebSocket handshake uses the same bearer header. It returns HTTP `401` or `403` instead of upgrading when authentication or authorization fails.
+On a self-hosted server, the WebSocket handshake uses the same bearer header.
+It returns HTTP `401` or `403` instead of upgrading when authentication or
+authorization fails.
+
+Status watch waits for runtime observations; it does not invent a first frame
+for a known but unobserved pipeline. An unknown pipeline is refused with a
+coded error.
 
 ### Pipeline history
 
@@ -592,8 +733,8 @@ Common status mappings:
 | `403` | Authenticated but insufficient scope |
 | `404` | Artifact, source, connector, pipeline, test result, schema, or observation not found |
 | `409` | Closed bootstrap, an illegal/incompatible lifecycle state, or an artifact refusal such as `artifact.in-use` |
-| `412` | Source or artifact `If-Match` content hash is stale |
-| `428` | Source or artifact update/delete omitted a valid precondition |
+| `412` | Source or artifact content hash, or draft revision, is stale |
+| `428` | An update or delete omitted a valid version precondition |
 | `500` | Coded server or connector failure without a client-attributable mapping |
 | `501` | Endpoint is present but not implemented |
 
