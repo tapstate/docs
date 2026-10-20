@@ -5,7 +5,11 @@ import type { ReactNode } from 'react';
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
-    <DocsLayout tree={source.getPageTree()} tabs={false} {...docsOptions()}>
+    <DocsLayout
+      tree={source.getPageTree()}
+      tabs={false}
+      {...docsOptions()}
+    >
       {children}
     </DocsLayout>
   );

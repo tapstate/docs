@@ -1,3 +1,4 @@
+import { organizeDocsNavigation } from './docs-navigation';
 import { docs } from 'collections/server';
 import type { Folder, Item, Node } from 'fumadocs-core/page-tree';
 import { loader } from 'fumadocs-core/source';
@@ -105,6 +106,7 @@ export const source = loader({
     transformers: [
       { folder: groupConnectorNavigation },
       { folder: groupUpgradeNavigation },
+      { root: organizeDocsNavigation },
     ],
   },
   plugins: [],
