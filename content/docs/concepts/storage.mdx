@@ -41,26 +41,54 @@ Durable recovery state includes:
 - schema and mapping state;
 - ownership information needed to prevent conflicting execution.
 
-The control store retains pipeline definitions and recovery positions. Compatible
-pipelines can share one capture while retaining independent consumer positions
-and initial-load boundaries. A restart can resume from retained positions, but
+The metadata store retains pipeline definitions, connector configuration,
+recovery positions, and the durable shared change log. Compatible pipelines
+can share one capture while retaining independent consumer positions and
+initial-load boundaries. A restart can resume from retained positions, but
 records may be replayed. Snapshot-only reads have no CDC continuation position.
+
+For shared capture, a source acknowledgement means the change is durable in
+tapstate's log; target acknowledgement is recorded separately for each
+consumer. Direct capture acknowledges progress after target confirmation.
+See [Initial loads and recovery](/docs/concepts/capture-modes#initial-loads-and-recovery).
 
 Keep source logs long enough for recovery. Delivery remains at-least-once for
 changes read by the connector; the snapshot-to-stream positioning window can
-still miss changes. See [v0.6 limits](/docs/releases/v0.6#known-limits-and-issues).
+still miss changes. See [v0.7 limits](/docs/releases/v0.7#known-limits-and-issues).
 
-The default operator-state database is `tapstate_nest`, configured with
+For self-hosted deployments, the default operator-state database is `tapstate_nest`, configured with
 `tapstate.store.mongo.operator-state-database`. A Nest can override it with
 `state.database` on the same MongoDB connection. Changing either setting does
 not copy existing state. Follow [Move Nest state](/docs/guides/move-nest-state)
-when moving a running workload.
+when moving a running workload. Cloud derives its internal operator-state and
+View database names from the platform metadata database; these are separate
+from the Atlas connection you configure as an output destination.
+
+### Back up configuration and recovery together
+
+In v0.7, stored Source connector configurations are encrypted with a keyring
+in the metadata database. Preserve the encrypted records and their original
+keyring together. A display-only Source read omits connector configuration
+and is not a restorable configuration export.
+
+Stop all writers before taking a consistent backup. Include metadata,
+operator-state databases, and managed View data, plus the deployment
+configuration and required working volumes. Account for external targets
+separately. Restoring older metadata does not restore changes that have
+expired from source logs or undo writes already delivered to a target.
+See [Upgrade to v0.7](/docs/guides/upgrade-to-v0-7).
 
 ## Materialized state
 
-Materialized state is the current consumer-facing result. In the current preview, an
-inline `view` is written to the deployment's managed MongoDB store. A
-`serve.sync` block is the separate path for delivery to an external target.
+Materialized state is the current consumer-facing result. An inline `view`
+writes to the deployment's managed MongoDB store. A `serve.sync` block writes
+to its configured target connection.
+
+In Cloud, **State Store** configures a user-supplied MongoDB Atlas connection
+named `atlas-store`. The server tests the connection before saving it, and
+pipelines use its selected output collection. This connection is separate from
+the platform's internal metadata and operator-state databases. The self-hosted
+Quickstart instead creates a managed `views` connection automatically.
 
 The Quickstart runs its managed store without database authentication and uses
 the same MongoDB deployment for control-plane data. That disposable topology is

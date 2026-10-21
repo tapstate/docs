@@ -1,0 +1,157 @@
+---
+title: v0.7
+description: Build pipelines in the web application, preview sample results, configure node execution, and evaluate the Db2 source in v0.7.
+ai:
+  kind: reference
+  id: release-v0_7
+  maturity: preview
+  aliases: [tapstate v0.7, tapstate v0.7.0, tapstate release notes]
+---
+
+Released October 16, 2026 · Preview v0.7.0
+
+`v0.7` adds persistent pipeline drafts, bounded data preview, node-level
+execution settings, managed Cloud sessions, and a source-only Db2 preview.
+It also improves PostgreSQL log release, restart recovery, and connector
+integrity checks. Use this preview with non-production systems and sample data.
+The server runs as a single member by default; cluster mode remains opt-in.
+
+See the [GitHub releases](https://github.com/tapstate/tapstate/releases) for
+native CLI archives, individual `.sha256` files, `checksums.txt`, and
+`platform-minimums.txt`.
+
+## Before upgrading
+
+- **Back up persistent state and its keyring together.** Stored Source
+  configurations are encrypted in both deployment modes. The original keyring
+  is required to read them. The store now has migrations through version 12;
+  an older server that cannot read that version refuses startup.
+- **Review execution settings.** `settings.parallelism` and
+  `settings.batch_size` remain parseable but have no execution effect. Use the
+  applicable node's `execution` settings instead.
+- **Retain the Cloud working volume for rollback.** The Cloud image now runs
+  as root and can create root-owned files. An earlier UID-10001 Cloud image
+  cannot safely reuse that volume unchanged. The standard self-hosted image
+  retains UID 10001. Both image profiles use Ubuntu 24.04.
+
+Follow [Upgrade to v0.7](/docs/guides/upgrade-to-v0-7) for backup, verification,
+and rollback steps.
+
+## What changed
+
+### Web authoring and preview
+
+- **Save incomplete pipeline drafts.** Save edits before they form a runnable
+  pipeline, then compile and publish when ready. Saving, publishing, and
+  starting are separate operations. Publishing does not restart an existing
+  run. See [Build a pipeline](/docs/guides/build-a-pipeline).
+- **Preview sample results before publishing.** Data Preview compiles candidate
+  resources, reads bounded source samples, and runs an isolated pipeline. It
+  does not write to the destination. Results can use MongoDB Extended JSON or
+  logical JSON, depending on the target codec. This differs from draft preview,
+  which only compiles the configuration.
+- **Distinguish intent from observation.** Status separates the last runtime
+  observation from the requested state and UI display state. Saved drafts and
+  known pipelines without an observation no longer require a fabricated runtime
+  state. See [Observe a pipeline](/docs/guides/observe-a-pipeline).
+
+### Execution and recovery
+
+- **Configure execution per node.** Set a cluster-wide target parallelism and
+  batch policy where `execution` is accepted. Requested and effective widths
+  can differ; source readers currently remain single-processor. See
+  [Pipeline execution settings](/docs/reference/pipeline).
+- **Release PostgreSQL WAL from durable progress.** Shared capture confirms
+  changes after they enter the durable shared log; direct capture waits for
+  target confirmation. Clearing the last dependent pipeline attempts to release
+  its replication slot. Snapshot-only reads avoid creating a CDC slot. See
+  [PostgreSQL](/docs/connectors/postgresql).
+- **Recover from confirmed progress.** Restart fixes cover slower sinks,
+  PostgreSQL heartbeat boundaries, shared-capture takeover, joins, and pending
+  restarts during startup. Missing replay history produces a recovery error
+  rather than silently skipping changes. See
+  [Capture modes and recovery](/docs/concepts/capture-modes).
+
+### Cloud and connectors
+
+- **Use managed Cloud sessions.** Cloud deployments verify exchanged identities
+  and Cluster-owned sessions. Self-hosted deployments retain local
+  authentication. Source configurations are encrypted in both modes. See
+  [Authentication](/docs/guides/bootstrap-and-auth).
+- **Evaluate Db2 as a source.** Read a Db2 LUW snapshot and ongoing changes.
+  Native CDC requires Linux x86_64 and the documented runtime preparation.
+  Db2 targets are refused in both deployment modes, including after an upgrade.
+  See [Db2](/docs/connectors/db2).
+- **Keep native connectors usable across operations.** Connection tests,
+  discovery, and pipelines reuse an artifact's class loader, avoiding repeated
+  native-library loading failures. Updated Oracle and Db2 download metadata
+  matches the published preview artifacts.
+
+### Other fixes
+
+- MongoDB full loads honor `on_full_load: clear` and `fail` while preserving
+  collection indexes and options. Recovery does not repeat a completed clear.
+- Connection tests and schema discovery wait for the server to finish instead
+  of reporting a client read timeout after 30 seconds. Cancellation and other
+  request budgets remain separate.
+- Unreadable connector uploads return `connector.artifact-unreadable` with HTTP
+  400 and the artifact name. Altered cached or stored artifacts are refused
+  before loading.
+- Stopping backpressured or shared captures releases their writers, cursors,
+  and late snapshot buffers without disrupting the remaining consumers.
+- The managed `views` connection cannot be deleted while stored pipelines
+  depend on it. Self-hosted SRV metadata connections preserve the effective
+  authentication database when deriving the views connection.
+- Connected CLI diagnostics report both CLI and server versions. Quiet
+  pipelines with settled parallel writes no longer report a false frontier gap.
+- Scheduled GitHub Actions installs skip the default install-telemetry request;
+  an explicit telemetry endpoint remains authoritative.
+
+## Known limits and issues
+
+This release remains an evaluation preview.
+
+- **Delivery is at-least-once.** Snapshot and CDC overlap can duplicate rows on
+  insert-only targets. A separate snapshot-to-stream positioning window can
+  miss changes the connector never reads; at-least-once delivery does not cover
+  that window.
+- **Cluster traffic has no authentication or TLS.** Keep the member port on a
+  private, protected network.
+- **Join accepts a restricted SQL shape.** Use supported equality joins with
+  unique dimension keys. Duplicate dimension keys replace earlier matches;
+  there is no uniqueness guard or 1:N fan-out. Keyed writes require all fact
+  primary-key columns as direct selected columns. See
+  [Join](/docs/reference/transforms#join) for the full limits.
+- **Older stores can refuse CDC recovery.** A store written by the published
+  0.4.5 image can retain legacy consumer identities and return
+  `capture.recovery-progress-unproven`. Preserve the store and backup; do not
+  clear recovery progress as a workaround. See
+  [#740](https://github.com/tapstate/tapstate/issues/740).
+- **Shared PostgreSQL capture can fail on restart.** A retained-state restart
+  can return `connector.capture-failed` with a slot-occupied error. Preserve
+  state and inspect the slot owner before retrying. See
+  [Replication slots and recovery](/docs/connectors/postgresql#replication-slots-and-recovery).
+- **Concurrent registration can create ambiguity.** Register connectors through
+  one entry member. This avoids concurrent seeding but does not repair an
+  already duplicated registry. See
+  [#687](https://github.com/tapstate/tapstate/issues/687).
+- **Shared inbound metrics can include another pipeline's tables.** Do not use
+  those counts alone to assess delivery. See
+  [#719](https://github.com/tapstate/tapstate/issues/719).
+- **Live Atlas acceptance remains deferred.** Four external Atlas acceptance
+  classes are deferred pending a managed test environment. MongoDB-based checks
+  do not establish live Atlas acceptance. See
+  [#702](https://github.com/tapstate/tapstate/issues/702).
+- **Db2 remains a preview.** This release has no automated live-Db2 acceptance
+  lane. Validate your exact connector artifact and database before use.
+
+## Get started
+
+- Run the [Web Quickstart](/docs/overview/quickstart), then
+  [build a pipeline](/docs/guides/build-a-pipeline) with your own data.
+- Read [Upgrade to v0.7](/docs/guides/upgrade-to-v0-7) before changing an existing server.
+- [Install the CLI](/docs/overview/install) for scripts and AI integrations.
+- Use the [v0.7.0 release assets](https://github.com/tapstate/tapstate/releases/tag/v0.7.0)
+  for binaries and checksums.
+- Review the [complete changelog](https://github.com/tapstate/tapstate/compare/v0.6.0...v0.7.0)
+  for the commit and PR history.

@@ -12,12 +12,28 @@ Open the pipeline in the web application and use **Monitoring** and **Logs**
 to inspect its activity. Compare these observations with source and target data
 before treating a run as successful.
 
+## Inspect the web application
+
+In **Pipelines**, open your pipeline and select **Monitoring**. Review its
+current metrics and target acknowledged positions. Use the refresh control to
+update the display, or pause automatic refresh while inspecting a value.
+
+![Monitoring page showing the current metrics and target acknowledged positions for a sample pipeline](/images/guides/build-a-pipeline/v0.7-monitoring.jpg)
+
+Select **Logs** to inspect recent runtime messages. Filter by level or use
+**Search this log tail**, then select a line to open **Log details**. These
+filters narrow the returned tail; they do not search a historical log archive.
+
+![Pipeline logs with a text search, level filters, and the selected line open in Log details](/images/guides/observe-a-pipeline/v0.7-logs.jpg)
+
+## CLI and API access
+
 CLI, REST, and MCP expose the same underlying observations for troubleshooting
 and automation. The commands below assume an authenticated CLI session.
 
 | Surface | Question | Storage boundary |
 |---|---|---|
-| Status | What lifecycle state is currently observed? | Latest store-backed observation |
+| Status | What is known about lifecycle intent and runtime state? | Pipeline catalog and latest available observation |
 | Metrics | What numeric run statistics and per-table positions are available? | Latest store-backed observation |
 | Snapshot | What per-table initial-load progress is available? | Latest store-backed observation |
 | History | How did output rates and selected-table lag change? | Retained samples, 15 days by default |
@@ -33,21 +49,47 @@ status orders_to_operational_state --watch
 
 States include:
 
-- `NEW`: applied but never started;
+- `NEW`: known to the server, with no runtime observation yet;
 - `RUNNING`: executing;
 - `PAUSED`: intentionally paused;
 - `STOPPED`: stopped; checkpoints may be retained or cleared, depending on the stop request;
 - `COMPLETED`: a bounded input was exhausted;
 - `FAILED`: the running job stopped unexpectedly.
 
-`status` is an observed state projection rather than a transient command confirmation. The observation includes `observedAt`, which records the exact instant the projection was captured. If a pipeline shows `RUNNING` but `observedAt` stops advancing or confirmed target positions remain unchanged while source activity continues, check logs and resource health for backpressure or stalls.
+The status response separates three facts:
+
+| Field | Meaning |
+|---|---|
+| `state` / `observedState` | Runtime state. Before the first observation, `state` is `NEW` and `observedState` is omitted. |
+| `desiredState` | The requested lifecycle intent, when available. |
+| `displayState` | The display phase, which can include `DRAFT` or `STARTING`. |
+
+A saved draft can have `displayState: DRAFT` and `hasArtifact: false`. A known
+pipeline requested to run can show `STARTING` before the first runtime
+observation. Neither creates an `observedAt` timestamp. Once an observation
+exists, `observedAt` records when it was captured; inspect its freshness
+alongside logs and confirmed target progress.
 
 When a job fails, the CLI status output includes `failureCode` and
 `failureMessage` with the `FAILED` state. `failureCode` is the stable machine
 key; `failureMessage` is the reader-facing explanation. Healthy states omit
 these fields.
 
-`status --watch` uses an authenticated WebSocket that polls the same observation and emits only state changes. A failure frame carries the same failure fields. A normal connection drop may be re-attached, but when the server closes the stream with a coded refusal, the CLI reports that code and terminates instead of reconnecting indefinitely. Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to stop watching without stopping the pipeline.
+`status --watch` uses an authenticated WebSocket and emits runtime state
+changes. For a known pipeline with no observation, it stays open without
+inventing an initial state event. An unknown ID is refused. A failure frame
+carries the same failure fields. A normal connection drop may be re-attached,
+but a coded server refusal ends the watch and reports the code. Press
+<kbd>Ctrl</kbd>+<kbd>C</kbd> to stop watching without stopping the pipeline.
+
+### Read the execution plan
+
+When available, status includes a `plan` describing requested and effective
+parallelism for each node, member counts, and batching. `awaitingRebalance`
+lists cluster members that joined after the run was planned and have no part
+of it until rebalance. Use the effective plan when checking execution; a
+requested parallelism is a cluster-wide target, not a count per member. See
+[Pipeline reference](/docs/reference/pipeline).
 
 ## Explain a lack of progress
 
@@ -82,6 +124,10 @@ pipeline-wide total, sum the namespace entries in your client.
 
 An absent metric is unavailable, not zero. Do not build a strict parser that
 rejects new metric keys.
+
+Unlike status, metrics, snapshot, and explanation reads require a runtime
+observation. An applied pipeline without one returns `monitor.no-observation`.
+A draft without a published artifact returns `lifecycle.unknown-pipeline`.
 
 Output counters reflect target acknowledgements. Source-read, buffered, and
 target-confirmed positions are different facts. The CLI renders serialized

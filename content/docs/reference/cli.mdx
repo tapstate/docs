@@ -54,10 +54,10 @@ same session to read the server's current self-description:
 
 ```console
 tapstate(127.0.0.1:8080)> version
-cli    0.6.0
-server 0.6.0 (127.0.0.1:8080)
+cli    0.7.0
+server 0.7.0 (127.0.0.1:8080)
 dsl    tapstate/v1
-data   11
+data   12
 ```
 
 When connected, `version` reports the CLI version, server version, the list of accepted authoring grammars (`dsl`), and the internal store schema version (`data`). If the server accepts no grammars, `dsl` reports `none`. If the server omits a field entirely, it reports `not reported`. Offline sessions omit `dsl` and `data` because only a running server can report them.
@@ -198,6 +198,9 @@ non-default installation, set `TAPSTATE_INSTALL_DIR` to the directory that
 contains `tapstate` before running the alias command.
 
 ## Start a connected session
+
+The local-user and saved-session commands below connect to a self-hosted
+server. Use managed browser sign-in for Cloud.
 
 Start the REPL, connect to a server, and log in:
 
@@ -418,6 +421,10 @@ keyed table, or choose `append` only for insert-only delivery. See
 
 For `delete`, omitting `--if-match` makes the CLI read the current artifact and use that version for the removal. Supplying a hash pins a version already held by the caller; a stale hash is refused instead of overwriting a newer version. Deletion is irreversible. The CLI `get` command prints the artifact content, not its hash; use the REST or MCP representation when you need to supply an explicit hash.
 
+For a Source, `get` omits connector `config` from the displayed YAML. The
+stored content hash still identifies the complete resource. Treat this output
+as a display view, not a backup or a complete Source definition to reapply.
+
 ## Manage machine tokens
 
 An authenticated administrator can create, list, and revoke machine tokens from
@@ -444,6 +451,10 @@ later.
 
 A successful resource validation does not establish network reachability, authentication, or data movement. Test the connection from the server environment before starting a pipeline.
 
+`test` and `discover-schema` wait for the connector without a fixed request
+deadline. A slow database can keep the command waiting. If the connection is
+interrupted, inspect `test-result` or `schema` before rerunning the operation.
+
 ## Control and observe a pipeline
 
 | Command | Purpose |
@@ -455,7 +466,7 @@ A successful resource validation does not establish network reachability, authen
 | `resume <pipeline-id>` | Resume a paused pipeline. |
 | `position <pipeline-id> [-f <file>]` | Read or update checkpoint resume positions for a stopped pipeline. |
 | `derived-schema <pipeline-id> [--accept]` | Compare schema evolution across pipeline steps, or adopt derived columns with `--accept`. |
-| `status <pipeline-id>` | Read current pipeline lifecycle state, failure details when failed, and latest observation instant (`observedAt`). |
+| `status <pipeline-id>` | Read pipeline lifecycle state, available failure details, and observation time when present. |
 | `status <pipeline-id> --watch` | Stream lifecycle changes until interrupted. |
 | `metrics <pipeline-id>` | Read current pipeline and per-table metrics or confirmed target positions. |
 | `metrics <pipeline-id> --from <time> --to <time> [options]` | Read bounded output-rate and selected-table lag history. |
@@ -466,7 +477,11 @@ A successful resource validation does not establish network reachability, authen
 
 Use <kbd>Ctrl</kbd>+<kbd>C</kbd> to end `status --watch` or `logs --follow`. This ends the local stream, not the pipeline.
 
-Status and metrics report observed state and can lag a lifecycle command briefly. In this preview, `snapshot` may report that no snapshot is available; do not use that response alone as proof that a data path succeeded or failed.
+Before the first runtime observation, a known pipeline's status can be `NEW`
+without an observation time. `status --watch` waits for runtime observations.
+Metrics, snapshot, and explain can still return `monitor.no-observation`.
+See the [status response fields](/docs/reference/rest-api#observation-endpoints)
+for lifecycle intent and display phases.
 
 ### History and explanations
 

@@ -253,15 +253,14 @@ Enter the password stored in the local `.env` file. Do not paste it into a shell
 
 ### A rerun reports an illegal lifecycle transition
 
-The script preserves generated assets and may encounter a pipeline that is already running after a partial or completed attempt. Inspect `status` first. For a clean local reset, remain in `tapstate-demo` and run:
+The script preserves generated assets. Inspect `status` and `logs` first.
+If the sample is already running and the five-order, six-shipment check passes,
+the setup is complete.
 
-```bash
-docker compose down -v
-curl -fsSL https://install.tapstate.dev/demo | sh
-```
-
-`down -v` permanently removes the Quickstart's local MySQL, PostgreSQL, and
-MongoDB volumes. It does not remove files in the playground directory.
+For a failed pipeline, fix the reported cause, stop it with `--keep-state`, and
+wait for the stop to complete before retrying the saved script from the same
+directory. See [Lifecycle transitions](/docs/guides/apply-and-run#lifecycle-transitions).
+A lifecycle error alone is not a reason to delete the playground's volumes.
 
 ### The managed view store is unreachable
 
@@ -282,22 +281,33 @@ or the process list.
 ### Connector registration is refused or download fails
 
 - `connector.not-official` means the server refused the artifact before
-  registration. The released preview registrar accepts official certified
-  connectors (MySQL, PostgreSQL, MongoDB, Oracle, and SQL Server). A catalog
-  entry or an uncertified connector JAR does not expand this boundary.
+  registration. The default accepted set has 17 IDs across MySQL, PostgreSQL,
+  MongoDB, Oracle, SQL Server, and Db2, including selected managed variants.
+  Check the exact [accepted IDs](/docs/guides/register-connectors); a catalog
+  entry alone does not make an artifact acceptable or certify every role.
+- `connector.artifact-unreadable` (HTTP `400`) means the uploaded JAR archive
+  or its specification cannot be read. The error's `artifact` parameter names
+  the file; the connector ID may not yet be known. Check that the download is
+  a complete JAR, not an HTML error page, then fetch the matching artifact
+  again before retrying registration.
 - `cli.connector-download-failed` means `register <connector-id>` could not fetch
   the artifact from the GitHub preview release or the mirror configured in
   `TAPSTATE_CONNECTORS_URL`. Verify network connectivity, HTTPS proxy settings,
   or set `TAPSTATE_CONNECTORS_URL` to an internal mirror.
 
+Register connectors one at a time. v0.7 still has a known ambiguity during
+concurrent registration; inspect the resulting catalog before retrying.
+
 ### Unsupported target connector
 
-`dsl.unsupported-target-connector` means a pipeline's `serve.sync` block references
-a connection whose connector kind is not certified for writes. In the current
-preview, only `mongodb` (and its managed cloud variants `mongodb-atlas`,
-`aliyun-db-mongodb`, `tencent-db-mongodb`) can serve as sync targets. Other
-certified connectors (MySQL, PostgreSQL, Oracle, SQL Server) are certified
-strictly as sources. Point the `sync` block to a MongoDB connection.
+`dsl.unsupported-target-connector` means a `serve.sync` destination is not
+allowed by this deployment's target rules. Cloud accepts MongoDB and MongoDB
+Atlas targets. Self-hosted deployments use the registered connector's sink
+capability, subject to source-only restrictions. Db2 and `aws-rds-mysql` are
+source-only in both modes; `aws-rds-mysql` is refused as a target even when its
+catalog entry reports sink capability. Check the destination's exact connector
+ID and [registration rules](/docs/guides/register-connectors). Catalog capability
+does not establish release certification.
 
 ## Check external-system preparation
 
@@ -352,7 +362,21 @@ starting another reader. Do not drop a slot that an existing pipeline needs.
 
 After recovery, verify a new source change in the target. A `RUNNING` status
 alone does not prove that PostgreSQL CDC resumed. See the
-[v0.6 PostgreSQL limitations](/docs/releases/v0.6#known-limits-and-issues).
+[replication-slot lifecycle](/docs/connectors/postgresql#replication-slots-and-recovery).
+
+### Recovery is refused
+
+`capture.recovery-log-gap` means retained history no longer contains a change
+the consumer needs. `capture.recovery-progress-unproven` means the retained
+checkpoint cannot prove a safe continuation, including some older stores.
+v0.7 prevents new unsafe checkpoints but does not repair existing ones.
+
+Back up the metadata and operator state before making changes. Keep the full
+diagnostic and compare the source, retained position, and target. If you choose
+`restart <pipeline-id> --rerun`, review the state-clearing confirmation and
+target write strategy. A shared chain retained by another consumer can retain
+completed-table history, so clearing one pipeline does not guarantee a full
+reload. See [Resume or rerun](/docs/concepts/capture-modes#resume-or-rerun).
 
 ### Lifecycle, position, and schema sync diagnostics
 
@@ -387,15 +411,18 @@ alone does not prove that PostgreSQL CDC resumed. See the
 |---|---|---|
 | `io.document-too-large` | A pipeline model or schema history entry exceeded MongoDB's 16MB document size limit. | The state store is healthy; retrying will not resolve the issue. Reduce the volume of schema history or wide table models tracked under the affected ID. |
 | `io.schema-write-contention` | Schema discovery failed to publish because its writer lease was reclaimed or concurrent discovery altered the record. | Wait for active discovery tasks to complete, then retry `discover-schema`. |
-| `connector.state-unreadable` | Connector checkpoint state stored in the state engine could not be deserialized (e.g., following a version downgrade). | If downgrading, run the release build that wrote the state. Otherwise, stop the pipeline with state purged (`tapstate stop <id>`) to start the connector fresh from the source origin. |
+| `connector.state-unreadable` | Stored connector state cannot be deserialized, for example after a downgrade. | Preserve a backup and use the release that wrote the state. If choosing to clear it, review shared-chain and target effects before rerunning. |
 | `connector.state-value-unsupported` | A connector attempted to persist an unmappable state data type in the storage layer. | Report the issue against the connector build; the connector's internal state cannot be persisted by the engine. |
+| `store.source-config-keyring-invalid` | The metadata keyring is missing, malformed, or inconsistent. | Restore the encrypted Source records and their matching keyring from a consistent backup; do not generate a replacement keyring for existing ciphertext. |
+| `store.source-config-keyring-not-ready` | This node cannot acknowledge the current keyring generation. | Check cluster membership and startup logs before retrying. Preserve the metadata and keyring for diagnosis. |
 
 ## Interpret observations carefully
 
-- `status` and `metrics` report observed state and may lag a lifecycle command briefly.
+- Status separates lifecycle intent from the latest runtime observation. Metrics require an observation and may lag a lifecycle command briefly.
 - `status --watch` and `logs --follow` continue until you press <kbd>Ctrl</kbd>+<kbd>C</kbd>.
 - Logs are node-local in the preview and are not a durable audit history.
 - `snapshot` can report that no snapshot is available. Confirm source and target records instead of treating that response alone as proof of success or failure.
+- Shared-capture inbound observations can be attributed incorrectly in v0.7. Compare per-table target confirmations and data before diagnosing a consumer from inbound counts alone.
 
 ## Collect a useful diagnostic bundle
 

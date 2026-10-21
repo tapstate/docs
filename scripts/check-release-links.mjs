@@ -3,13 +3,13 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const cliReleaseVersion = '0.6.0';
+const cliReleaseVersion = '0.7.0';
 const cliReleaseTag = `v${cliReleaseVersion}`;
-const minorReleaseSeries = 'v0.6';
+const minorReleaseSeries = 'v0.7';
 const productDir = process.env.TAPSTATE_PRODUCT_DIR;
 const installPath = new URL('../content/docs/overview/install.mdx', import.meta.url);
 const quickstartPath = new URL('../content/docs/overview/quickstart.mdx', import.meta.url);
-const releasePath = new URL('../content/docs/releases/v0.6.mdx', import.meta.url);
+const releasePath = new URL('../content/docs/releases/v0.7.mdx', import.meta.url);
 const releasesMetaPath = new URL('../content/docs/releases/meta.json', import.meta.url);
 const install = await readFile(installPath, 'utf8');
 const quickstart = await readFile(quickstartPath, 'utf8');
@@ -57,8 +57,8 @@ if (/https:\/\/install\.tapstate\.dev(?:\s*\||\s+-o\s+quickstart)/.test(quicksta
   failures.push('Quickstart uses the CLI-only root URL; the playground requires /demo');
 }
 
-if (!releasesMeta.pages || releasesMeta.pages[0] !== 'v0.6') {
-  failures.push('Release metadata does not list v0.6 as the current release page');
+if (!releasesMeta.pages || releasesMeta.pages[0] !== 'v0.7') {
+  failures.push('Release metadata does not list v0.7 as the current release page');
 }
 
 if (quickstart.includes('v0.4.1') || quickstart.includes("The stack's server image remains pinned to v0.3.0")) {
@@ -88,6 +88,10 @@ if (productDir) {
 
   const composeServerMatch = compose.match(/image:\s+ghcr\.io\/tapstate\/tapstate:(\S+)/);
   const scriptCliMatch = script.match(/CLI_VERSION="([^"]+)"/);
+
+  if (composeServerMatch && scriptCliMatch) {
+    console.log(`Product source Quickstart pins: CLI ${scriptCliMatch[1]}, server ${composeServerMatch[1]}. Public endpoint pins are checked separately when TAPSTATE_VERIFY_REMOTE_LINKS=1.`);
+  }
 
   if (!composeServerMatch) {
     failures.push('product Quickstart server image tag could not be found');

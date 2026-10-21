@@ -1,4 +1,4 @@
 {
   "title": "Connectors",
-  "pages": ["index", "mysql", "postgresql", "oracle", "sqlserver", "mongodb"]
+  "pages": ["index", "mysql", "postgresql", "oracle", "sqlserver", "db2", "mongodb"]
 }

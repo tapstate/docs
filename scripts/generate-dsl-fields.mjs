@@ -27,6 +27,10 @@ const sections = [
     definitions: ['Settings', 'Step.Inline', 'Step.Use', 'ViewBlock.Inline', 'ViewBlock.Use', 'ServeBlock.Inline', 'ServeBlock.Use'],
   },
   {
+    title: 'Node execution',
+    definitions: ['ExecutionSpec', 'BatchSpec'],
+  },
+  {
     title: 'Transform bodies',
     definitions: [
       'TransformBody.Filter',
@@ -56,6 +60,8 @@ const sections = [
 ];
 
 const descriptionOverrides = {
+  'Settings.parallelism': 'Legacy field. Parses for compatibility but has no runtime effect in v0.7; set execution.parallelism on each node.',
+  'Settings.batch_size': 'Legacy field. Parses for compatibility but has no runtime effect in v0.7; set execution.batch.max_records on each node.',
   'TableRef.Spec.pk': 'Primary-key override accepted by the grammar. The current runtime does not execute this field; an upsert still requires a primary key in the discovered source schema.',
   'Srs.key': 'Optional identifier that overrides automatic mining-chain derivation. Reuse a value only when compatible CDC sources must share one replay store.',
   'TransformBody.Nest.entries_in_memory': 'Maximum entries kept in memory at each nest level. Additional entries use the configured backing layer. Omit to use the deployment default.',

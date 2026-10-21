@@ -160,13 +160,13 @@ export function PreviewArchitecture() {
       <section aria-label="Current preview control and data paths" className="grid gap-2 rounded-xl border border-fd-border bg-fd-muted/20 p-4 sm:grid-cols-[minmax(0,1fr)_2rem_minmax(17rem,1.25fr)_2rem_minmax(0,1fr)] sm:grid-rows-[auto_auto_auto_auto_auto_auto_auto] sm:gap-x-2 sm:gap-y-2 sm:p-5">
         <p className="order-1 mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-fd-primary sm:col-start-1 sm:row-start-1 sm:mb-0">Control path</p>
         <div className="order-2 sm:col-start-3 sm:row-start-2">
-          <WorkflowNode title=".tap.yml workspace" description="Source and pipeline resources." icon={FileText} />
+          <WorkflowNode title="Pipeline draft" description="Connect sources and define the data path in the web application." icon={FileText} />
         </div>
         <div className="order-3 sm:col-start-3 sm:row-start-3">
-          <WorkflowVerticalArrow label="validate / apply" />
+          <WorkflowVerticalArrow label="save / preview" />
         </div>
         <div className="order-4 sm:col-start-3 sm:row-start-4">
-          <WorkflowNode title="Web application" description="Inspect sources, pipelines, monitoring, and logs." icon={Layers3} accent />
+          <WorkflowNode title="Web application" description="Publish and start; inspect monitoring and logs." icon={Layers3} accent />
         </div>
         <div className="order-5 sm:col-start-3 sm:row-start-5">
           <WorkflowVerticalArrow label="Submit (HTTP)" />
@@ -844,7 +844,7 @@ export function ConnectorDirectoryMatrix() {
     {
       status: 'current' as const,
       title: 'Current connector path',
-      description: 'Connector roles published for the current MySQL, PostgreSQL, Oracle, and SQL Server to MongoDB operational-state path.',
+      description: 'Published database sources, including the Db2 preview, and the MongoDB operational-state target.',
       icon: CircleCheck,
       iconClassName: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/45 dark:text-emerald-300',
     },

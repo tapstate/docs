@@ -1,0 +1,132 @@
+---
+title: Upgrade to v0.7
+description: Back up a self-hosted deployment, migrate Source configuration, and verify or roll back a v0.7 upgrade
+ai:
+  kind: guide
+  id: upgrade-to-v0-7
+  maturity: preview
+  aliases: [v0.7 migration, encrypted Source configuration, v0.7 rollback]
+---
+
+The first v0.7 server start upgrades the metadata store to data version `12`
+and encrypts stored Source connector configurations. **A v0.6 server cannot
+open the upgraded store.** Back up before upgrading; changing the image tag
+back does not restore compatibility.
+
+This procedure is for operators of an existing self-hosted deployment. For a
+new disposable environment, use the [Quickstart](/docs/overview/quickstart).
+Tapstate v0.7 remains a preview for evaluation.
+
+## Before you begin
+
+- Record the server version, image digest, configuration, connector artifacts,
+  and pipeline definitions. Keep the matching previous release available.
+- Identify the metadata database, every operator-state database, managed View
+  data, external targets, and persistent working volumes.
+- Plan downtime for all server processes that can write to the deployment.
+  Keep source logs long enough to cover the maintenance window and recovery.
+- Establish a restorable backup and a target-data reconciliation point. A
+  generic Source `get` response omits connector configuration and is not a
+  configuration backup.
+- If upgrading from before v0.6, also review [Upgrade to v0.6](/docs/guides/upgrade-to-v0-6)
+  for resource changes such as removing unused `view.schema`.
+
+## 1. Review resources and recovery
+
+Move execution tuning from the old `settings.parallelism` and
+`settings.batch_size` fields to the supported node-level `execution` fields.
+The old fields still parse but have no runtime effect in v0.7. See
+[Pipeline reference](/docs/reference/pipeline) for placement and defaults.
+
+Retain recovery state for a normal upgrade. Clearing state or choosing a rerun
+discards that pipeline's continuation and can repeat target writes; it does
+not guarantee a full reload while another consumer retains a shared chain.
+Existing unsafe recovery metadata is not repaired automatically:
+`capture.recovery-progress-unproven`
+refuses continuation when a safe position cannot be established. Preserve the
+state for diagnosis before choosing a fresh load.
+
+For PostgreSQL, record the slots and WAL retained for each source. Earlier
+releases can leave unused slots behind. Do not drop an inactive slot until
+you have checked all pipelines and retained recovery dependencies. See
+[Replication slots and recovery](/docs/connectors/postgresql#replication-slots-and-recovery).
+
+## 2. Stop writers and back up
+
+1. Stop each pipeline without clearing state: `stop <pipeline-id> --keep-state`
+   in an authenticated CLI session, or the REST stop operation with
+   `{"purgeState": false}`. Wait for it to stop.
+2. Stop every tapstate server process that can write to the deployment.
+3. Take a consistent backup of the metadata, operator-state, and managed View
+   databases. Preserve server configuration, connector artifacts, and required
+   working volumes with the backup.
+4. Record the backup time and source and target reconciliation points before
+   starting the new release.
+
+From v0.7 onward, the encrypted Source records and their original metadata
+keyring must be backed up and restored together. Do not replace a missing
+keyring with a newly generated one. Protect the complete backup: it contains
+both encrypted configuration and the keys needed to read it.
+
+## 3. Start v0.7
+
+Use the [v0.7.0 release](https://github.com/tapstate/tapstate/releases/tag/v0.7.0)
+and the matching `ghcr.io/tapstate/tapstate:0.7.0` server image. Preserve MongoDB,
+authentication, connector, and state-placement settings. Do not mix v0.6 and
+v0.7 servers against the upgraded metadata store.
+
+The first start encrypts stored Source configurations under the metadata-backed
+keyring. Check startup logs for migration or keyring failures before starting
+pipelines. Do not edit stored envelopes or migration version records to
+bypass a refusal.
+
+### Cloud image working volumes
+
+The v0.7 Cloud image runs as `root` for the Db2 native runtime; the previous
+image ran as UID `10001`. If you operate these images, preserve working-volume
+ownership in your backup. A previous image may not be able to write a volume
+modified by v0.7. Restore the pre-upgrade volume or deliberately restore its
+ownership before rollback. This change does not apply to the regular
+self-hosted image.
+
+## 4. Verify the deployment
+
+1. Confirm `/version` reports `version: "0.7.0"` and `dataVersion: 12`, and
+   `/healthz` returns HTTP `200` with `ok`.
+2. Sign in on the web. Confirm the expected sources, drafts, and pipelines are
+   present.
+3. Open an existing source, test its connection, and discover a selected table
+   to confirm its stored credentials remain usable.
+4. Start a small pipeline with retained state. Check status and logs, then
+   compare representative keyed target records with the pre-upgrade result.
+5. For CDC, verify a controlled insert, update, and delete, including a stop
+   with retained state and a subsequent start.
+
+Delivery remains at-least-once. The snapshot-to-stream positioning limit and
+other [v0.7 limits](/docs/releases/v0.7#known-limits-and-issues) still apply.
+For recovery failures, preserve the complete diagnostic and see
+[Troubleshooting](/docs/guides/troubleshooting#recovery-is-refused).
+
+## Roll back
+
+1. Stop all v0.7 servers, then back up the stopped v0.7 state separately for
+   investigation.
+2. Restore the complete pre-upgrade backup, including metadata, operator
+   state, and managed View data. Restore matching configuration and working
+   volumes, including permissions required by the previous image.
+3. Start the previous server version with its matching artifacts and
+   configuration. Confirm its version and health before starting pipelines.
+4. Reconcile source and target changes made since the backup. A MongoDB
+   restore does not undo external target writes or recreate expired source
+   logs. Resume only from a consistent recovery point.
+
+Do not run an older binary against the migrated store or restore encrypted
+Sources without their matching keyring. Keep both backups until the restored
+deployment has been verified.
+
+## Related pages
+
+- [State and storage](/docs/concepts/storage)
+- [Capture modes](/docs/concepts/capture-modes)
+- [Observe a pipeline](/docs/guides/observe-a-pipeline)
+- [v0.7 release notes](/docs/releases/v0.7)

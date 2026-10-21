@@ -17,8 +17,10 @@ MCP (Model Context Protocol) lets an AI desktop app, editor, or agent call
 selected tapstate control-plane operations through a standard tool interface.
 Tapstate provides a local MCP gateway in the complete CLI bundle.
 
-The gateway is an optional integration. It does not install or start a tapstate
-server, provide a web UI, or expose an MCP HTTP endpoint from the server.
+The gateway is an optional integration for a self-hosted server. It does not
+install or start a tapstate server, provide a web UI, or expose an MCP HTTP
+endpoint from the server. Cloud uses managed browser sign-in; the machine-token
+setup below applies to self-hosted deployments.
 
 ## How the connection works
 
@@ -231,9 +233,9 @@ By default, the gateway exposes read-only tools:
 |---|---|
 | `system_version` | Report the server release, accepted DSL versions, and system-data schema version. |
 | `artifact_validate` | Validate a complete `tapstate/v1` workspace without writing it. |
-| `artifact_get` | Read one applied resource and its content hash. |
+| `artifact_get` | Read one applied resource's display representation and full-resource content hash. |
 | `source_draft` | Render canonical YAML for a source from its live connector contract. |
-| `source_list` | List structured sources declared on the server; accepts optional `offset` and `limit`. |
+| `source_list` | List source IDs, connectors, and metadata without connection config; accepts optional `offset` and `limit`. |
 | `connection_test_result` | Read the latest persisted connection-test result. |
 | `connection_schema` | Read the latest discovered source schema. |
 | `connector_list` | List connectors visible to the online server. |
@@ -241,13 +243,46 @@ By default, the gateway exposes read-only tools:
 | `data_browser_collections` | List the collections held by a declared source's database. |
 | `data_browser_find` | Read a bounded preview of rows from one collection. |
 | `data_browser_stats` | Read the collection metadata reported by its connector. |
-| `pipeline_list` | List structured pipelines declared on the server; accepts optional `offset` and `limit`. |
+| `pipeline_list` | List artifact-backed pipelines; accepts optional `offset` and `limit`. |
 | `pipeline_status` | Read a pipeline's current lifecycle status. |
 | `pipeline_metrics` | Read the latest bounded pipeline metrics. |
 | `pipeline_metrics_history` | Read bounded output-rate and selected-table lag history. |
 | `pipeline_explain` | Explain the current pipeline observation. |
 | `pipeline_snapshot` | Read the latest per-table snapshot progress. |
 | `pipeline_logs` | Read a bounded, secret-redacted pipeline log tail. |
+
+`pipeline_list` does not include draft-only pipelines. The gateway does not
+expose the Web draft workflow or streaming Data Preview in v0.7.
+
+For Sources, `artifact_get` omits connector `config` from the display YAML.
+Its content hash still identifies the full stored resource; do not use the
+display representation as a backup or reapply it as a complete definition.
+
+`pipeline_status` separates `desiredState`, `displayState`, and runtime
+observation. A known pipeline without an observation returns `state: "NEW"`
+without `observedState` or `observedAt`. Metrics, snapshot, and explain can
+still return `monitor.no-observation`.
+
+### Write tools
+
+Start the gateway with `--allow-write` and a write-scoped token to expose
+these additional tools. Enabling tools does not bypass server authorization.
+
+| MCP tool | Purpose |
+|---|---|
+| `artifact_apply` | Validate and apply resource drafts. |
+| `artifact_delete` | Remove an artifact using required `id` and `expectedContentHash`. |
+| `connection_test` | Run and persist a connector connection test. |
+| `connection_discover_schema` | Run and persist source schema discovery. |
+| `pipeline_start` | Request a pipeline start. |
+| `pipeline_stop` | Stop a pipeline; requires an explicit Boolean `purgeState`. |
+| `pipeline_pause` | Request a pause. |
+| `pipeline_resume` | Resume a paused pipeline. |
+
+Connection test and discovery wait for the connector without a fixed request
+deadline. If a call is interrupted, inspect the stored test result or schema
+before retrying. Read the tool's returned outcome and coded errors; a
+successful protocol exchange alone does not establish a passed test.
 
 ### Pipeline history and explanations
 

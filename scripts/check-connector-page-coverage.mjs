@@ -59,7 +59,7 @@ const directoryItems = new Map(
     }]),
 );
 const productProfiles = new Map(
-  [...directorySource.matchAll(/^\s*['"]?([\w-]+)['"]?:\s*\{\s*status:\s*'(current|roadmap)',[\s\S]*?useAs:\s*\[([^\]]*)\],\s*modes:\s*\[([^\]]*)\]\s*\},?$/gm)]
+  [...directorySource.matchAll(/^\s*['"]?([\w-]+)['"]?:\s*\{\s*status:\s*'(current|roadmap|unlisted)',[\s\S]*?useAs:\s*\[([^\]]*)\],\s*modes:\s*\[([^\]]*)\]\s*\},?$/gm)]
     .map((match) => [match[1], {
       status: match[2],
       roles: quotedList(match[3]),

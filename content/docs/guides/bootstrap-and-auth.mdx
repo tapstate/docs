@@ -8,7 +8,9 @@ ai:
   aliases: [tapstate login, tapstate bootstrap, tapstate authentication, tapstate bearer token]
 ---
 
-The tapstate control plane requires authentication for connector, artifact, connection, pipeline, and observation operations. A new server has one bootstrap window for creating its first administrator.
+The tapstate control plane requires authentication for connector, artifact,
+connection, pipeline, and observation operations. Self-hosted servers use local
+accounts; Cloud uses its managed sign-in flow.
 
 The [Quickstart](/docs/overview/quickstart) performs these steps
 automatically. Use this page after a tapstate server is already running, for
@@ -21,8 +23,14 @@ For the Playground, follow the [Web access step](/docs/overview/quickstart#3-ope
 and sign in as `admin` with the password saved in `tapstate-demo/.env`. The setup script creates the account.
 For another deployment, use the server URL and account supplied by its operator.
 
-The sections below are for operators creating the first account and developers
-using the CLI or HTTP API. Web users do not need to repeat bootstrap.
+For Cloud, open the cluster from the Cloud application and complete its sign-in
+flow. The server exchanges the one-time code for a host-only, secure,
+HTTP-only session cookie. Use HTTPS and the assigned cluster hostname; local
+bootstrap and username/password login are unavailable in Cloud mode.
+
+The bootstrap and password-login examples below cover **self-hosted
+authentication**. A new self-hosted server has one bootstrap window for its
+first administrator. Web users do not need to repeat bootstrap.
 
 ## Before you begin
 
@@ -111,7 +119,26 @@ curl --fail-with-body --silent --show-error \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-The current session token lifetime is 15 minutes. When the signing secret is not configured, the single-node server creates a new secret at startup, so existing session tokens stop working after a restart.
+The returned access token expires after 15 minutes. When the signing secret is
+not configured, the single-node server creates a new secret at startup, so
+existing access tokens stop working after a restart. For longer-lived CLI
+sessions, see [Save a server context and session](/docs/reference/cli#save-a-server-context-and-session).
+
+## Cloud sessions
+
+Cloud browser sessions and self-hosted access tokens have different lifecycles.
+Cloud validates and refreshes the managed session on the server; do not apply
+the self-hosted 15-minute access-token lifetime to its browser cookie.
+
+- Use the application's sign-out flow to invalidate the session and clear its
+  cookie.
+- Cookie-authenticated writes must come from the same origin. Keep the proxy's
+  hostname allowlist and HTTPS configuration aligned with the cluster URL.
+- `/auth/invalidate-session` is a signed provider callback, not a user API that
+  accepts a normal Bearer token.
+
+See [Base URLs and authentication](/docs/reference/rest-api#base-urls-and-authentication)
+for the deployment-specific HTTP contracts.
 
 ## Authentication results
 

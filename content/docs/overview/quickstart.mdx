@@ -121,16 +121,16 @@ quickstart.
 Under **Data Sources**, open `orders_db` and select `orders` to inspect its
 discovered columns. `fulfillment_db` contains the `shipments` table.
 
-![The orders table in Data Sources, showing its discovered columns and primary key](/images/quickstart/v0.6-source-columns.jpg)
+In **Pipelines**, open `order_pipeline` to inspect the data path. The two sources
+feed `assemble`, then `order_state`. Open **Monitoring** to see the current
+status and metrics; **Logs** shows recent pipeline messages.
 
-In **Pipelines**, open `order_pipeline`. **Build** shows the sample data path:
+In **Views**, open `order_state` and select **Documents** to browse a sample of
+its stored documents.
 
-![The order pipeline in the tapstate web application: orders and shipments feed assemble, which writes order_state](/images/quickstart/v0.6-pipeline-build.jpg)
+![Documents tab in the order_state view showing a sample order with its related shipments](/images/guides/build-a-pipeline/v0.7-view-documents.jpg)
 
-The two sources feed `assemble`, then `order_state`. Open **Monitoring** to see
-the current status and metrics; **Logs** shows recent pipeline messages.
-
-![The order pipeline Monitoring page, showing its current status and metrics](/images/quickstart/v0.6-pipeline-monitoring.jpg)
+For a complete creation workflow, see [Build a pipeline](/docs/guides/build-a-pipeline).
 
 ## 4. Understand the result
 
@@ -153,13 +153,14 @@ For order `1`, the sample result has this business shape (MongoDB's generated
 ```
 
 The order fields come from MySQL; the `shipments` array comes from PostgreSQL.
-The web application lets you inspect the pipeline topology, monitoring metrics, and
-logs. Interactive result querying remains in development, so the setup script
-verifies the assembled documents directly in MongoDB.
+The web application lets you inspect the pipeline, metrics, logs, and a sample
+of stored documents. The setup script verifies the initial result directly in
+MongoDB before reporting success.
 
 ## Next steps
 
 - [Explore the order-state demo](/docs/overview/order-state-demo) to change both source databases and watch the document stay current.
+- [Build a pipeline](/docs/guides/build-a-pipeline) with your own connections in the web application.
 - Learn how [connections and connectors](/docs/concepts/connections-and-connectors) and [capture modes](/docs/concepts/capture-modes) fit the pipeline.
 - Prepare an external system with its [connector guide](/docs/connectors).
 - For scripts or AI integrations, use the optional [CLI](/docs/overview/install) or [MCP gateway](/docs/reference/mcp).

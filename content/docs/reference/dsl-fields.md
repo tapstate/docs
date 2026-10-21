@@ -32,6 +32,7 @@ current preview runtime. For the execution boundary, see [Resource grammar](/doc
 | `SourceResource.mode` | `SourceMode` | no | — | `cdc`, `snapshot`, `stream`, `file`, `api` | Read mode; may be omitted when the source is only a connection supplier. |
 | `SourceResource.tables` | array<`TableRef`> | no | — | — | Tables to read: bare names, /regex/ patterns, or per-table objects. |
 | `SourceResource.srs` | `Srs` | no | — | — | Shared Record Store configuration; only valid on cdc sources. |
+| `SourceResource.execution` | `ExecutionSpec` | no | — | — | How this source is read: its target total parallelism (one processor reads a source today, whatever is written) and the batch it hands rows on in. |
 | `SourceResource.experimental` | object | no | — | — | Experimental fields, exempt from the v1 compatibility freeze. |
 | `PipelineResource.version` | constant | yes | — | `tapstate/v1` | The grammar version; always "tapstate/v1". |
 | `PipelineResource.kind` | constant | yes | — | `pipeline` | Resource kind discriminator. |
@@ -55,6 +56,7 @@ current preview runtime. For the execution boundary, see [Resource grammar](/doc
 | `ViewResource.metadata` | `Metadata` | no | — | — | Optional labels and free-text description. |
 | `ViewResource.primary_key` | string | yes | — | — | Name of the column used as the view's primary key. |
 | `ViewResource.storage` | `Storage` | no | — | — | Where and how the view's data is materialized. |
+| `ViewResource.execution` | `ExecutionSpec` | no | — | — | How this node runs: its target total parallelism across the cluster and its batch. |
 | `ViewResource.experimental` | object | no | — | — | Experimental fields, exempt from the v1 compatibility freeze. |
 | `ServeResource.version` | constant | yes | — | `tapstate/v1` | The grammar version; always "tapstate/v1". |
 | `ServeResource.kind` | constant | yes | — | `serve` | Resource kind discriminator. |
@@ -71,6 +73,8 @@ current preview runtime. For the execution boundary, see [Resource grammar](/doc
 |---|---|---|---|---|---|
 | `Metadata.labels` | object | no | — | — | Arbitrary key/value labels attached to the resource for grouping and selection. |
 | `Metadata.description` | string | no | — | — | Free-text description of the resource; never identity. |
+| `Metadata.cloud` | boolean | no | — | — | Server-managed marker carried by resources created in a managed Cloud Cluster. |
+| `Metadata.user_id` | string | no | — | — | Server-managed stable user id of the authenticated creator, when one is known. |
 | `TableRef.Spec.name` | string | yes | — | — | Literal name of the table to select from the source. |
 | `TableRef.Spec.filter` | string | no | — | — | CEL row expression that filters which rows of the table are included. |
 | `TableRef.Spec.pk` | array<string> | no | — | — | Primary-key override accepted by the grammar. The current runtime does not execute this field; an upsert still requires a primary key in the discovered source schema. |
@@ -85,21 +89,24 @@ current preview runtime. For the execution boundary, see [Resource grammar](/doc
 | Field | Type | Required | Default | Accepted values | Description |
 |---|---|---|---|---|---|
 | `Settings.error_policy` | `ErrorPolicy` | no | fail | `dead_letter`, `skip`, `fail` | How the task reacts to record-level errors during processing. |
-| `Settings.batch_size` | integer | no | 1000 | — | Number of records processed per batch. |
-| `Settings.parallelism` | integer | no | 1 | — | Number of parallel workers used to process the task. |
+| `Settings.batch_size` | integer | no | 1000 | — | Legacy field. Parses for compatibility but has no runtime effect in v0.7; set execution.batch.max_records on each node. |
+| `Settings.parallelism` | integer | no | 1 | — | Legacy field. Parses for compatibility but has no runtime effect in v0.7; set execution.parallelism on each node. |
 | `Settings.schedule` | string | no | — | — | Cron-style schedule for running the task; only valid for a bounded read. |
 | `Settings.read_mode` | `ReadMode` | no | snapshot_and_cdc | `snapshot_and_cdc`, `cdc_only`, `snapshot_only` | What the pipeline reads from a cdc source: full snapshot then changes, changes only, or a one-shot snapshot. |
 | `Settings.start_from` | string | no | latest | — | Where to start consuming an incremental tail: earliest, latest, or an ISO-8601 timestamp. |
 | `Step.Inline.id` | string | yes | — | — | Unique step id within the pipeline; auto-generated for anonymous inline steps. |
 | `Step.Inline.from` | `FromClause` | yes | — | — | The upstream steps or sources this transform reads from. |
+| `Step.Inline.execution` | `ExecutionSpec` | no | — | — | How this node runs: its target total parallelism across the cluster and its batch. |
 | `Step.Inline.experimental` | object | no | — | — | Experimental fields, exempt from the v1 compatibility freeze. |
 | `Step.Use.id` | string | no | — | — | Unique step id within the pipeline; defaults to the referenced transform name. |
 | `Step.Use.use` | string | yes | — | — | Name of the transform definition to reuse. |
 | `Step.Use.from` | `FromClause` | yes | — | — | The upstream steps or sources this transform reads from. |
+| `Step.Use.execution` | `ExecutionSpec` | no | — | — | How this node runs: its target total parallelism across the cluster and its batch. |
 | `ViewBlock.Inline.id` | string | yes | — | — | Unique resource id across the workspace; must not contain a dot. |
 | `ViewBlock.Inline.from` | `FromRef` | yes | — | — | The upstream source this view consumes records from. |
 | `ViewBlock.Inline.primary_key` | string | yes | — | — | Field or fields that uniquely identify a record in this view. |
 | `ViewBlock.Inline.storage` | `Storage` | no | — | — | Storage backend used to persist this view. |
+| `ViewBlock.Inline.execution` | `ExecutionSpec` | no | — | — | How this node runs: its target total parallelism across the cluster and its batch. |
 | `ViewBlock.Use.id` | string | no | — | — | Unique resource id across the workspace; must not contain a dot. Defaults to the referenced view name. |
 | `ViewBlock.Use.use` | string | yes | — | — | Name of the externally defined view to reuse. |
 | `ViewBlock.Use.from` | `FromRef` | yes | — | — | The upstream source this view consumes records from. |
@@ -111,6 +118,15 @@ current preview runtime. For the execution boundary, see [Resource grammar](/doc
 | `ServeBlock.Use.id` | string | no | — | — | Optional id for this serve block; defaults to the referenced definition name. |
 | `ServeBlock.Use.use` | string | yes | — | — | Name of the reusable serve definition to use. |
 | `ServeBlock.Use.from` | `FromClause` | yes | — | — | The data source this serve block exposes. |
+
+## Node execution
+
+| Field | Type | Required | Default | Accepted values | Description |
+|---|---|---|---|---|---|
+| `ExecutionSpec.parallelism` | integer | no | — | — | Target total number of processors for this node across the whole cluster, from 1 to 1024. Omitted means the node type's default: 1 for sources and transforms, 4 for view and serve.sync sinks. |
+| `ExecutionSpec.batch` | `BatchSpec` | no | — | — | The batch this node forms before handing its rows on or writing them out. |
+| `BatchSpec.max_records` | integer | no | 1024 | — | The most rows one batch holds, from 1 to 65536. |
+| `BatchSpec.max_wait` | string | no | 0ms | — | How long a batch may wait for more rows after its first one: a whole number followed by ms, s or m, at most 60s. 0ms means no waiting. |
 
 ## Transform bodies
 
@@ -166,6 +182,7 @@ current preview runtime. For the execution boundary, see [Resource grammar](/doc
 | `SyncElement.rename` | `RenameSpec` | no | — | — | Rules for renaming the target table and columns relative to the pipeline output. |
 | `SyncElement.ddl` | `DdlPolicy` | no | fail | `apply`, `ignore`, `fail` | Policy controlling how schema changes are applied to the target store. |
 | `SyncElement.on_full_load` | `OnFullLoad` | no | append | `clear`, `append`, `fail` | Treatment of existing target rows before a new full load; resume, recovery and CDC-only never clear rows. |
+| `SyncElement.execution` | `ExecutionSpec` | no | — | — | How this node runs: its target total parallelism across the cluster and its batch. |
 | `RenameSpec.map` | object | no | — | — | Explicit per-table rename map from source name to target name; takes highest priority. |
 | `RenameSpec.case` | `RenameCase` | no | — | `upper`, `lower`, `camel`, `pascal` | Case transform applied to table names before prefix/suffix rules. |
 | `RenameSpec.prefix` | string | no | — | — | Prefix prepended to each target table name. |

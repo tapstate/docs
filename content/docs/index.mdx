@@ -46,11 +46,11 @@ The Quickstart demonstrates one operational data path:
 - an in-flight `nest` transform that assembles one order document
 - continuous materialization to MongoDB
 
-The local MongoDB instance is the preview's managed state store for the
-declared view.
-Do not infer another store, query API, or push surface from the broader product
-model. Start with the [Quickstart](/docs/overview/quickstart) to
-run the current path locally.
+The local MongoDB instance stores the demo's managed view. In Cloud, the output
+uses the Atlas connection configured for that Cluster. See
+[State and storage](/docs/concepts/storage) for the storage boundaries.
+Start with the [Quickstart](/docs/overview/quickstart) to run the sample locally,
+then [build a pipeline](/docs/guides/build-a-pipeline) for your own data.
 
 The server-backed preview is supplied through the disposable Docker playground;
 this release does not publish a standalone server installer.
@@ -58,6 +58,11 @@ this release does not publish a standalone server installer.
 ## Complete a task
 
 <CardGrid>
+  <LinkCard
+    title="Build a pipeline"
+    description="Connect a source, save a draft, preview data, and start a pipeline in the web application."
+    href="/docs/guides/build-a-pipeline"
+  />
   <LinkCard
     title="Prepare a connector"
     description="Find roles, modes, permissions, limitations, and exact field names."

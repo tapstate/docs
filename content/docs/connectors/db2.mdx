@@ -1,0 +1,334 @@
+---
+title: Db2
+description: Read a Db2 LUW snapshot and ongoing changes into tapstate, with the runtime requirements for the native log reader.
+ai:
+  kind: connector
+  id: db2
+  category: databases
+  maturity: preview
+  useAs: [source]
+  modes: [snapshot, cdc]
+  aliases: [db2 source, db2 luw, db2 snapshot, db2 cdc, native log miner]
+---
+
+import { ConnectorProfile, ValidationStatusGuide } from '@/components/mdx';
+import { SourceModeTab, SourceModeTabs } from '@/components/source-mode-tabs';
+
+<ConnectorProfile
+  category="Databases"
+  maturity="Preview"
+  worksAs="Source"
+  capabilities="Snapshot, CDC, Schema discovery"
+  compatibility="Db2 LUW · Native CDC requires a Linux x86_64 tapstate runtime"
+/>
+
+## Before you begin
+
+Db2 is a source-only preview connector. Register `db2` on the server before
+creating a connection. The Docker Quickstart does not install it automatically.
+See [Register and test connectors](/docs/guides/register-connectors).
+
+Use a non-production database to validate your Db2 version, data types, snapshot,
+and CDC behavior with the connector artifact you register. This guide covers
+Db2 LUW, not Db2 for i or Db2 for z/OS.
+
+The connector JAR includes the IBM JDBC driver and runtime client under their
+applicable license terms. Use of the connector remains subject
+to the applicable commercial connector agreement.
+
+### Source
+
+Choose the outcome you need. Each tab is a complete preparation path; you do not need to combine steps from both tabs.
+
+Ensure the tapstate server can reach the Db2 database service. Use a dedicated account recognized by the database's authentication provider. On Linux with local operating system authentication, an administrator must create the OS user account first:
+
+```bash
+# On the Db2 host (Linux with local OS authentication)
+sudo useradd -m -s /bin/bash tapstate_reader
+sudo passwd tapstate_reader
+```
+
+If your database uses LDAP, Kerberos, or another centralized authentication provider, provision the account in that directory instead.
+
+<SourceModeTabs>
+<SourceModeTab value="snapshot" label="Full load (Snapshot)" description="Copy existing rows once">
+
+Use **Full load** (`Snapshot`) to copy the rows that exist now. It does not require archive logging, raw log services, or elevated administrator privileges.
+
+**1. Grant database and table read access**
+
+Run these statements as an authorized database administrator, replacing the database, schema, table, and user names:
+
+```sql
+CONNECT TO SAMPLE;
+
+GRANT CONNECT ON DATABASE TO USER TAPSTATE_READER;
+GRANT SELECT ON TABLE APP.ORDERS TO USER TAPSTATE_READER;
+```
+
+Repeat the `GRANT SELECT` statement for each selected table. Snapshot-only reads do not require archive logging or log retention.
+
+**2. Verify connection and read access**
+
+Confirm that the account can connect and query the selected tables:
+
+```sql
+CONNECT TO SAMPLE USER TAPSTATE_READER USING 'replace-with-a-secret';
+SELECT COUNT(*) FROM APP.ORDERS;
+CONNECT RESET;
+```
+
+Set `mode: snapshot` in the connection resource.
+
+</SourceModeTab>
+<SourceModeTab value="snapshot-cdc" label="Full load + CDC" description="Copy existing rows, then capture changes">
+
+Use **Full load + CDC** when the pipeline must start with existing rows and continuously stream committed changes. Complete the database and runtime preparation below, then set `mode: cdc` and `useNativeMiner: true` in the connection.
+
+**1. Grant database access and log-reading authority**
+
+Db2 CDC uses the database's `db2ReadLog` API, which requires `DBADM` or `SYSADM` authority in addition to table read privileges. Connect as a database administrator and grant the necessary permissions:
+
+```sql
+CONNECT TO SAMPLE;
+
+-- Grant database connection and the administrative authority required for log reading
+GRANT CONNECT, DBADM ON DATABASE TO USER TAPSTATE_READER;
+
+-- Grant read access to each captured table
+GRANT SELECT ON TABLE APP.ORDERS TO USER TAPSTATE_READER;
+```
+
+Repeat the table grant for every selected table. Have your database security administrator review the elevated `DBADM` authority before granting it.
+
+**2. Enable database archive logging**
+
+Db2 defaults to circular logging (`LOGARCHMETH1 = OFF`), which overwrites transaction log files and cannot support CDC. To capture committed changes continuously, enable archive logging and retain log files for the longest expected pipeline interruption:
+
+```bash
+# Example: configure disk archiving for the database (run as Db2 instance owner)
+db2 update db cfg for SAMPLE using LOGARCHMETH1 DISK:/db2/archives/SAMPLE
+```
+
+> [!IMPORTANT]
+> Updating `LOGARCHMETH1` places the database into `BACKUP PENDING` state. The database will reject connections until an offline backup is completed. Coordinate this maintenance window with your DBA:
+
+```bash
+# Take an offline full backup to clear the BACKUP PENDING state
+db2 backup db SAMPLE to /db2/backup
+```
+
+**3. Enable change capture on selected tables**
+
+Enable row-level change logging on each table that the pipeline will read:
+
+```sql
+ALTER TABLE APP.ORDERS DATA CAPTURE CHANGES;
+```
+
+If a captured table's schema changes (DDL) later, run a table reorganization before resuming capture:
+
+```sql
+CALL SYSPROC.ADMIN_CMD('REORG TABLE APP.ORDERS');
+```
+
+**4. Prepare the tapstate host for the native log reader**
+
+Verify the tapstate server satisfies the [native log reader](#native-log-reader) requirements:
+- A Linux x86_64 host (ARM64 is unsupported).
+- `libxml2.so.2` installed on the host.
+- Shared `libstdc++.so.6` preloaded before the JVM starts (`LD_PRELOAD=libstdc++.so.6`).
+- Root permissions on the first connection attempt to initialize the bundled IBM client instance.
+
+**5. Verify database and table settings**
+
+Confirm that archive logging is active and each table has change capture enabled before starting the pipeline:
+
+```bash
+# Confirm LOGARCHMETH1 is configured (not OFF)
+db2 get db cfg for SAMPLE | grep -i logarchmeth1
+```
+
+```sql
+-- Confirm DATACAPTURE is 'Y'
+SELECT TABSCHEMA, TABNAME, DATACAPTURE
+FROM SYSCAT.TABLES
+WHERE TABSCHEMA = 'APP' AND TABNAME = 'ORDERS';
+```
+
+Keep archived logs accessible for at least seven days and longer than any anticipated recovery window.
+
+</SourceModeTab>
+</SourceModeTabs>
+
+For permission details, see IBM's [table grants](https://www.ibm.com/docs/en/db2/11.5.x?topic=statements-grant-table-view-nickname-privileges)
+and [log-reading authorities](https://www.ibm.com/docs/en/db2/11.1?topic=ownership-gaining-access-data-through-indirect-means).
+
+### Native log reader
+
+The in-process log reader requires:
+
+- A Linux x86_64 tapstate server. The native bridge does not run on ARM64.
+- Root access for the first native connection, when the bundled IBM runtime is
+  registered and its private client instance is created.
+- `libxml2.so.2` on the host and shared `libstdc++.so.6` preloaded before the
+  server's JVM starts, with `LD_PRELOAD=libstdc++.so.6`.
+
+The current Db2 preview JAR bundles the IBM runtime client and initializes it
+on first use. The Cloud image supplies these dependencies and runs as root.
+The standard self-hosted image runs as UID 10001, so its operator must start the
+container as root (`--user 0`) for the first native connection and supply the
+preloaded library:
+
+```bash
+# Example: run as root for first-connection initialization and preload libstdc++
+docker run -d --name tapstate \
+  --user 0 \
+  -e LD_PRELOAD=libstdc++.so.6 \
+  -p 8080:8080 \
+  ghcr.io/tapstate/tapstate:0.7.0
+```
+
+`useNativeMiner` defaults to `false`; enable it explicitly for native CDC.
+With it disabled, CDC uses a separately deployed raw log service. That path is
+experimental and requires its own network, authentication, and log-retention
+preparation.
+
+## Create a connection
+
+In the web application, create a Db2 source connection with the prepared
+endpoint and credentials. For file-based authoring, create this resource:
+
+```yaml title="source/db2_orders.tap.yml"
+version: tapstate/v1
+kind: source
+id: db2_orders
+connector: db2
+config:
+  host: db2.internal
+  port: 50000
+  database: SAMPLE
+  schema: APP
+  user: ${DB2_USER}
+  password: ${DB2_PASSWORD}
+  useNativeMiner: true
+  readlogBufsize: 20480
+mode: cdc
+tables:
+  - ORDERS
+```
+
+Use your database service's actual port; the catalog does not provide a default.
+For a bounded full load, use `mode: snapshot` and omit `useNativeMiner`.
+The connection mode describes its read capability; the pipeline's
+[`read_mode`](/docs/reference/pipeline#settings) selects how the pipeline reads it.
+
+To generate a resource with the CLI instead:
+
+```bash
+tapstate add source --non-interactive \
+  --connector db2 --id db2_orders --mode cdc \
+  --set host=db2.internal --set port=50000 \
+  --set database=SAMPLE --set schema=APP \
+  --set user='${DB2_USER}' --set password='${DB2_PASSWORD}' \
+  --set useNativeMiner=true --set readlogBufsize=20480 \
+  --workdir tapstate-work
+```
+
+Then select `ORDERS` in the generated resource's `tables` list.
+
+## Validate the configuration
+
+For a local workspace, check the resource before uploading it:
+
+```bash
+tapstate validate --workdir tapstate-work
+```
+
+<ValidationStatusGuide />
+
+Local validation checks the resource shape and recognized field types. It does
+not contact Db2 or establish that the native runtime is ready.
+
+Run a connection test in the web application, then discover the source schema.
+For the CLI, use an authenticated session after applying the workspace:
+
+```text
+register db2 -o json
+apply
+test db2_orders -o json
+discover-schema db2_orders -o json
+schema db2_orders -o json
+```
+
+Continue only when the test reports `outcome: PASSED` and discovery returns the
+selected tables. Then validate a small snapshot, CDC inserts, updates, deletes,
+and a keep-state restart against your target. Follow [Build a pipeline](/docs/guides/build-a-pipeline).
+
+## Limitations
+
+- Db2 cannot be a `serve.sync` target. The server rejects writes to Db2 in both
+  Cloud and self-hosted deployments, including connections registered before an
+  upgrade.
+- The current release has no automated live-Db2 acceptance lane. Replacing a
+  floating preview JAR requires validating the replacement with your database.
+- Native CDC has the platform and initialization requirements listed above.
+  Raw log service mode is experimental and is not intended for production use.
+- Log reads consume database CPU, I/O, and network resources. Monitor those
+  resources and retain logs beyond the longest recovery interval.
+- After a captured table's DDL changes, coordinate any required
+  `CALL SYSPROC.ADMIN_CMD('REORG TABLE APP.ORDERS')` with your DBA. Rediscover the
+  schema and test continued capture before resuming normal changes.
+- Raw log service nodes must use matching database language and country codes.
+  Looking up an older LRI in a large log history can delay CDC startup; test
+  that delay and recovery behavior before choosing a start position.
+- Updates to variable-length fields can appear as multiple low-level log
+  operations. Validate the resulting target rows rather than inferring data
+  correctness from operation counts alone.
+
+## Reference
+
+### Connection settings
+
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `host` | Yes | — | Db2 service hostname. |
+| `port` | Yes | — | Database service port. |
+| `database` | Yes | — | Database name. |
+| `schema` | Yes | — | Schema to discover and read. Use a separate connection for another schema. |
+| `user` | For authenticated access | — | Database account. |
+| `password` | For password authentication | — | Account password; a secret field. |
+| `useNativeMiner` | No | `false` | Read CDC logs in-process when `true`; otherwise use the raw log service. |
+| `readlogBufsize` | Yes | `20480` | Read-log buffer size in KB. |
+| `extParams` | No | — | Additional JDBC connection-string parameters. |
+| `timezone` | No | Empty | Time-zone selection; the empty selection uses the connector default. Explicit values range from `-11:00` to `+14:00`. Test temporal values before changing it. |
+
+### Additional log-reader settings
+
+The raw log endpoint and cluster fields require a prepared raw log service.
+Use the starting-position and archive settings only with the matching log
+reader setup; setting them does not prepare that setup automatically.
+
+| Field | Default | Description |
+|---|---|---|
+| `rawLogServerHost` | — | Raw log service hostname. |
+| `rawLogServerPort` | `50051` | Service port. |
+| `rawLogServerTimeoutSeconds` | `30` | Raw log RPC timeout in seconds. |
+| `highAvailability` | `false` | Enable a raw log cluster. |
+| `rawNameAddress` | — | Raw log service node addresses. |
+| `autoLri` | `true` | Resolve the starting log record identifier automatically. |
+| `sshPort` | `22` | Required when `autoLri: false`. |
+| `db2Profile` | — | Required when `autoLri: false`; Db2 profile path. |
+| `archived` | `false` | Archive-log selection when `autoLri: false`. |
+| `archiveDir` | — | Required when `archived: true`; archive directory. |
+| `sqlCtlDir` | — | Required when `archived: true`; LFH directory. |
+| `initialLri` | — | Explicit initial log record identifier. |
+| `timeBack` | `7` | LRI lookup lookback in days. |
+
+### Data compatibility
+
+Test representative string, numeric, temporal, binary, large-object, and XML
+columns from your schema. The Db2 preview does not establish an exhaustive
+version or data-type compatibility matrix. Verify exact decimal precision,
+temporal values, and update/delete behavior in the destination before relying
+on them.

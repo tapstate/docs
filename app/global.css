@@ -179,3 +179,10 @@ html > body[data-scroll-locked] {
     animation: none;
   }
 }
+
+/* Directory rows toggle a group; only page links receive the active highlight. */
+:is(#nd-sidebar, #nd-sidebar-mobile) button:has(> svg[data-icon]) {
+  min-height: 2.5rem;
+  font-weight: 600;
+  color: var(--color-fd-foreground);
+}
